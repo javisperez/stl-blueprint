@@ -758,6 +758,33 @@ function sharpLoops(M){
   }
   return loops;
 }
+/* Sharp creases that run around an axis (e.g. where a cylinder meets a taper) mark a
+   real height break even when neither side got fitted as a clean primitive - a fitted
+   cylinder/cone/plane is a bonus, not a requirement, for that boundary to be worth a
+   dimension. Group them into ridge "circles" by level so a whole ring counts once. */
+function axisRidges(M,e,tol){
+  const levels=[];
+  for(let i=0;i<M.edges.length;i++){
+    const E=M.edges[i];
+    if(E.f2<0) continue;
+    const d=M.fn[E.f1*3]*M.fn[E.f2*3]+M.fn[E.f1*3+1]*M.fn[E.f2*3+1]+M.fn[E.f1*3+2]*M.fn[E.f2*3+2];
+    if(d>0.94) continue;                          // shallow - not a real crease
+    const ax=M.V[E.a*3],ay=M.V[E.a*3+1],az=M.V[E.a*3+2];
+    const bx=M.V[E.b*3],by=M.V[E.b*3+1],bz=M.V[E.b*3+2];
+    let ex=bx-ax,ey=by-ay,ez=bz-az;
+    const L=Math.hypot(ex,ey,ez); if(!(L>0)) continue;
+    ex/=L; ey/=L; ez/=L;
+    if(Math.abs(ex*e[0]+ey*e[1]+ez*e[2])>0.2) continue;   // runs along the axis, not around it
+    const t=((ax+bx)/2)*e[0]+((ay+by)/2)*e[1]+((az+bz)/2)*e[2];
+    let hit=null;
+    for(const lv of levels) if(Math.abs(lv.t-t)<=tol){ hit=lv; break; }
+    if(hit){ hit.t=(hit.t*hit.len+t*L)/(hit.len+L); hit.len+=L; }
+    else levels.push({t,len:L});
+  }
+  // a full ring's summed edge length is its circumference - square it so a prominent
+  // ridge competes fairly against the fitted faces/features measured in area (~length^2)
+  return levels.map(lv=>({t:lv.t,w:lv.len*lv.len}));
+}
 function findSteps(M,planes,feats,angles,up){
   const AX=[[1,0,0],[0,1,0],[0,0,1]];
   const out=[];
@@ -789,6 +816,10 @@ function findSteps(M,planes,feats,angles,up){
       const [lo,hi]=axialSpan(M,b.faces,e,[0,0,0]);
       cand.push({t:lo,w:b.w}); cand.push({t:hi,w:b.w});
     }
+    // creases the fitter never confidently claimed (an ambiguous taper, say) still
+    // mark a real height boundary - only worth the extra clutter on the axis a
+    // body-of-revolution part is actually built around
+    if(alignedUp) for(const rg of axisRidges(M,e,tol)) cand.push(rg);
 
     if(!cand.length) continue;
     cand.sort((a,b)=>a.t-b.t);
@@ -802,7 +833,7 @@ function findSteps(M,planes,feats,angles,up){
     let inner=merged.filter(m=>m.t>lo+tol&&m.t<hi-tol);
     if(!inner.length) continue;
     inner.sort((a,b)=>b.w-a.w);
-    inner=inner.slice(0,4).sort((a,b)=>a.t-b.t);
+    inner=inner.slice(0,alignedUp?6:4).sort((a,b)=>a.t-b.t);
     const ts=[lo,...inner.map(m=>m.t),hi];
     const uniq=[]; for(const t of ts) if(!uniq.length||t-uniq[uniq.length-1]>tol) uniq.push(t);
     if(uniq.length<3) continue;
