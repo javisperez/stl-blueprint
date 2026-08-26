@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { initApp } from './engine/blueprint'
+import IconUpload from '~icons/tabler/upload'
+import IconCube from '~icons/tabler/cube'
+import IconRuler from '~icons/tabler/ruler-2'
+import IconDownload from '~icons/tabler/download'
 
 onMounted(() => {
   initApp()
@@ -9,21 +13,22 @@ onMounted(() => {
 
 <template>
   <header>
-    <h1>STL Blueprint <span>&mdash; measured drawings from a mesh</span></h1>
-    <div class="grow"></div>
-    <div class="bar">
+    <div class="titlebar">
+      <h1>STL Blueprint <span>&mdash; measured drawings from a mesh</span></h1>
+    </div>
+    <div class="toolbar">
       <div class="group">
-        <label class="file">Open STL<input type="file" id="file" accept=".stl"></label>
-        <button id="sample">Sample part</button>
+        <label class="file icon-btn"><IconUpload class="ico" />Open STL<input type="file" id="file" accept=".stl"></label>
+        <button id="sample" class="icon-btn"><IconCube class="ico" />Sample part</button>
       </div>
       <div class="sep"></div>
-      <span class="unit">file
+      <span class="unit"><IconRuler class="ico dim" />file
         <select id="srcUnit"><option value="1" selected>mm</option><option value="10">cm</option><option value="25.4">in</option></select>
         &rarr; show
         <select id="dspUnit"><option value="1" selected>mm</option><option value="10">cm</option><option value="25.4">in</option></select>
       </span>
       <div class="sep"></div>
-      <span class="unit">export
+      <span class="unit"><IconDownload class="ico dim" />export
         <select id="exportSel">
           <option value="">choose…</option>
           <option value="png">PNG &mdash; as shown</option>

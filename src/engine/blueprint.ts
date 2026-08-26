@@ -874,7 +874,7 @@ const V_SEC_R =mkView("SECTION A-A",[-1,0,0],[0,0,1],"Y \u2192  Z \u2191");
 const SHEET="#D9DCD4", PENCIL="#24272C", BLUE="#1F4E8C", CENTRE="#8B8F86", RED="#B3123B";
 const HATCH="#767B70";
 const MONO='11px ui-monospace,"SF Mono",Menlo,Consolas,monospace';
-const SHEETINFO={pane:null,scale:1,ctr:[0,0,0]};
+const SHEETINFO={pane:null,scale:1,ctr:[0,0,0],gridX:0,gridY:0};
 
 function sheetLayout(cssW,M,S){
   const cssH=Math.round(cssW*0.82);
@@ -902,6 +902,7 @@ function sheetLayout(cssW,M,S){
     scale=Math.min(scale,(pw-132)/Math.max(w,1e-6),(ph-124)/Math.max(h,1e-6));
   }
   return {cssW,cssH,PAD,TB,area,panes,views,ctr,scale,standard,
+          gridX:Math.round(area.x+area.w/2)+.5, gridY:Math.round(area.y+area.h/2)+.5,
           title:{x:area.x,y:area.y+area.h+6,w:area.w,h:TB-6}};
 }
 
@@ -915,11 +916,10 @@ function paintSheet(g,L,M,A,S){
   for(let i=0;i<4;i++) drawView(g,L.panes[i],L.views[i],M,A,L.scale,L.ctr,S,false,i!==1);
   // a light cross separating the four panes, like a printed sheet's fold/grid lines
   g.__mark&&g.__mark("grid");
-  const midX=Math.round(L.area.x+L.area.w/2)+.5, midY=Math.round(L.area.y+L.area.h/2)+.5;
   g.strokeStyle="#9EA398"; g.lineWidth=.6;
   g.beginPath();
-  g.moveTo(midX,L.area.y); g.lineTo(midX,L.area.y+L.area.h);
-  g.moveTo(L.area.x,midY); g.lineTo(L.area.x+L.area.w,midY);
+  g.moveTo(L.gridX,L.area.y); g.lineTo(L.gridX,L.area.y+L.area.h);
+  g.moveTo(L.area.x,L.gridY); g.lineTo(L.area.x+L.area.w,L.gridY);
   g.stroke();
   g.__mark&&g.__mark("title");
   drawTitleBlock(g,L.title,M,S,L.scale,L.standard);
@@ -933,6 +933,7 @@ function drawSheet(cv,M,A,S){
   const g=cv.getContext("2d");
   g.setTransform(dpr,0,0,dpr,0,0);
   SHEETINFO.pane=L.panes[1]; SHEETINFO.scale=L.scale; SHEETINFO.ctr=L.ctr;
+  SHEETINFO.gridX=L.gridX; SHEETINFO.gridY=L.gridY;
   paintSheet(g,L,M,A,S);
   positionPaneSelects(L);
 }
@@ -982,7 +983,6 @@ function drawView(g,P,V,M,A,scale,ctr,S,quick,hasSelect){
     dep[f]=M.fc[f*3]*V.f[0]+M.fc[f*3+1]*V.f[1]+M.fc[f*3+2]*V.f[2];
     front[f]=(M.fn[f*3]*V.f[0]+M.fn[f*3+1]*V.f[1]+M.fn[f*3+2]*V.f[2])<0?1:0;
   }
-  const patchOf=M.patchOf;
   const owner=new Map();
   if(!quick) for(let e=0;e<M.edges.length;e++){
     const E=M.edges[e];
@@ -991,7 +991,10 @@ function drawView(g,P,V,M,A,scale,ctr,S,quick,hasSelect){
     if(E.f2<0) show=true;
     else if(!keep[E.f1]||!keep[E.f2]) show=false;
     else if(front[E.f1]!==front[E.f2]) show=true;
-    else if(patchOf&&patchOf[E.f1]!==patchOf[E.f2]){
+    else{
+      // a real crease shows up regardless of which fitted patch either face landed in -
+      // relying on patchOf alone missed boundaries where noisy CSG output put both
+      // faces in the same patch despite a sharp dihedral angle between them
       const d=M.fn[E.f1*3]*M.fn[E.f2*3]+M.fn[E.f1*3+1]*M.fn[E.f2*3+1]+M.fn[E.f1*3+2]*M.fn[E.f2*3+2];
       if(d<0.9063) show=true;
     }
@@ -1189,19 +1192,29 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
   const levelPt=(ai,t)=>{const p=[ctr[0],ctr[1],ctr[2]];p[ai]=t;return proj(p);};
 
   if(chainV){
-    const dimX=Math.max(x0-26,P.x+16);
+    const baseX=Math.max(x0-26,P.x+16);
+    let prevMid=null, stagger=0;
     for(const sg of chainV.segs){
       const ya=levelPt(vAx,sg.a)[1], yb=levelPt(vAx,sg.b)[1];
       if(Math.abs(ya-yb)<9) continue;
-      dimV(g,ya,yb,x0,dimX,S.fmt(sg.len),S.hiStep===sg);
+      const mid=(ya+yb)/2;
+      // consecutive short segments can put their labels close enough to collide -
+      // step the dimension line outward until there's clear air between them
+      stagger=(prevMid!==null&&Math.abs(mid-prevMid)<13)?stagger+1:0;
+      dimV(g,ya,yb,x0,baseX-stagger*15,S.fmt(sg.len),S.hiStep===sg);
+      prevMid=mid;
     }
   }
   if(chainH&&!isSec){
-    const dimY=Math.min(y1+26,P.y+P.h-16);
+    const baseY=Math.min(y1+26,P.y+P.h-16);
+    let prevMid=null, stagger=0;
     for(const sg of chainH.segs){
       const xa=levelPt(hAx,sg.a)[0], xb=levelPt(hAx,sg.b)[0];
       if(Math.abs(xa-xb)<26) continue;
-      dimH(g,xa,xb,y1,dimY,S.fmt(sg.len),S.hiStep===sg);
+      const mid=(xa+xb)/2;
+      stagger=(prevMid!==null&&Math.abs(mid-prevMid)<30)?stagger+1:0;
+      dimH(g,xa,xb,y1,Math.min(baseY+stagger*15,P.y+P.h-16),S.fmt(sg.len),S.hiStep===sg);
+      prevMid=mid;
     }
   }
   dimV(g,y0,y1,x0,Math.max(x0-(chainV?54:26),P.x+12),S.fmt((y1-y0)/scale));
@@ -1609,7 +1622,7 @@ function outlineEdgeList(M,V,keep){
     let show=false;
     if(E.f2<0) show=true;
     else if(front[E.f1]!==front[E.f2]) show=true;
-    else if(M.patchOf&&M.patchOf[E.f1]!==M.patchOf[E.f2]){
+    else{
       const d=M.fn[E.f1*3]*M.fn[E.f2*3]+M.fn[E.f1*3+1]*M.fn[E.f2*3+1]+M.fn[E.f1*3+2]*M.fn[E.f2*3+2];
       if(d<0.9063) show=true;
     }
@@ -2315,6 +2328,14 @@ function drawIso(quick){
   g.beginPath(); g.rect(P.x,P.y,P.w,P.h); g.clip();
   g.fillStyle=SHEET; g.fillRect(P.x,P.y,P.w,P.h);
   drawView(g,P,isoView(ISO.az,ISO.el),MESH,A,SHEETINFO.scale,SHEETINFO.ctr,state(),quick);
+  g.restore();
+  // the fill above paints over its half of the shared grid lines - put them back
+  g.save(); g.setTransform(dpr,0,0,dpr,0,0);
+  g.strokeStyle="#9EA398"; g.lineWidth=.6;
+  g.beginPath();
+  g.moveTo(SHEETINFO.gridX,P.y); g.lineTo(SHEETINFO.gridX,P.y+P.h);
+  g.moveTo(P.x,SHEETINFO.gridY); g.lineTo(P.x+P.w,SHEETINFO.gridY);
+  g.stroke();
   g.restore();
 }
 function inIso(cv,e){
