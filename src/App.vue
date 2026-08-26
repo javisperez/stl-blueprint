@@ -12,22 +12,17 @@ onMounted(() => {
     <h1>STL Blueprint <span>&mdash; measured drawings from a mesh</span></h1>
     <div class="grow"></div>
     <div class="bar">
-      <label class="file">Open STL<input type="file" id="file" accept=".stl"></label>
-      <button id="sample">Sample part</button>
+      <div class="group">
+        <label class="file">Open STL<input type="file" id="file" accept=".stl"></label>
+        <button id="sample">Sample part</button>
+      </div>
+      <div class="sep"></div>
       <span class="unit">file
         <select id="srcUnit"><option value="1" selected>mm</option><option value="10">cm</option><option value="25.4">in</option></select>
         &rarr; show
         <select id="dspUnit"><option value="1" selected>mm</option><option value="10">cm</option><option value="25.4">in</option></select>
       </span>
-      <span class="unit">plan
-        <select id="topSel"><option value="top" selected>Top</option><option value="bottom">Bottom</option></select>
-      </span>
-      <span class="unit">elevation
-        <select id="elevSel"><option value="front" selected>Front</option><option value="right">Right</option></select>
-      </span>
-      <span class="unit">4th view
-        <select id="fourthSel"><option value="section">Section A-A</option><option value="other" id="otherOpt">Right view</option></select>
-      </span>
+      <div class="sep"></div>
       <span class="unit">export
         <select id="exportSel">
           <option value="">choose…</option>
@@ -45,7 +40,12 @@ onMounted(() => {
     <div class="status" id="status"></div>
     <div id="drop">Drop an STL here, or use <b>Open STL</b> above.</div>
     <div id="panel" hidden>
-      <canvas id="sheet"></canvas>
+      <div class="sheet-wrap">
+        <canvas id="sheet"></canvas>
+        <select id="topSel" class="pane-select"><option value="top" selected>Top</option><option value="bottom">Bottom</option></select>
+        <select id="elevSel" class="pane-select"><option value="front" selected>Front</option><option value="right">Right</option></select>
+        <select id="fourthSel" class="pane-select"><option value="section">Section A-A</option><option value="other" id="otherOpt">Right view</option></select>
+      </div>
       <div class="cols">
         <div class="stack">
           <div class="card">

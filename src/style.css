@@ -4,34 +4,49 @@
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--graphite);color:var(--ink);
-  font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
-header{padding:22px 26px 16px;border-bottom:1px solid var(--line);
-  display:flex;align-items:center;gap:18px;flex-wrap:wrap}
-h1{margin:0;font-size:16px;font-weight:600;letter-spacing:.02em}
+  font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased;}
+header{padding:20px 26px;border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+h1{margin:0;font-size:15px;font-weight:600;letter-spacing:.01em}
 h1 span{color:var(--dim);font-weight:400}
 .grow{flex:1}
-.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.bar{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.bar .group{display:flex;gap:8px;align-items:center}
+.bar .sep{width:1px;height:22px;background:var(--line)}
 button,select,label.file{
   background:var(--panel);color:var(--ink);border:1px solid var(--line);
-  border-radius:7px;padding:7px 13px;font:inherit;font-size:13px;cursor:pointer}
-button:hover,label.file:hover{border-color:#454A52}
-select{padding:6px 9px}
+  border-radius:3px;padding:7px 12px;font:inherit;font-size:12.5px;cursor:pointer;
+  transition:border-color .12s,background .12s}
+button:hover,label.file:hover{border-color:#454A52;background:#22262B}
+select{padding:6px 8px}
+button:focus-visible,select:focus-visible,input:focus-visible{
+  outline:2px solid var(--accent);outline-offset:1px}
 input[type=file]{display:none}
 .unit{display:flex;align-items:center;gap:6px;color:var(--dim);font-size:12px}
 main{padding:22px 26px 60px;max-width:1560px;margin:0 auto}
 .status{color:var(--dim);font-size:12.5px;min-height:18px;
   font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
 .status.busy{color:var(--accent)}
-#drop{border:1.5px dashed var(--line);border-radius:12px;padding:64px 24px;text-align:center;color:var(--dim)}
+#drop{border:1.5px dashed var(--line);border-radius:4px;padding:64px 24px;text-align:center;color:var(--dim)}
 #drop.over{border-color:var(--accent);color:var(--ink)}
-canvas{width:100%;display:block;border-radius:10px;touch-action:none;
-  box-shadow:0 18px 44px rgba(0,0,0,.5);background:#D9DCD4}
+.sheet-wrap{position:relative}
+canvas{width:100%;display:block;border-radius:3px;touch-action:none;
+  border:1px solid #0B0C0E;box-shadow:0 8px 20px rgba(0,0,0,.35);background:#D9DCD4}
+.pane-select{
+  position:absolute;z-index:2;
+  background:transparent;border:none;border-radius:2px;
+  margin:0;padding:2px 3px;
+  font:600 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  letter-spacing:.03em;text-transform:uppercase;color:#24272C;cursor:pointer}
+.pane-select:hover{background:rgba(36,39,44,.08)}
+.pane-select:focus-visible{outline:1.5px solid #1F4E8C;outline-offset:1px}
 .cols{display:grid;grid-template-columns:1.25fr 1fr;gap:18px;margin-top:22px}
 @media(max-width:1000px){.cols{grid-template-columns:1fr}}
 .stack{display:flex;flex-direction:column;gap:18px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:11px;overflow:hidden}
-.card h3{margin:0;padding:12px 16px;font-size:12px;font-weight:600;
-  letter-spacing:.07em;text-transform:uppercase;color:var(--dim);
+.card{background:var(--panel);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.card h3{margin:0;padding:11px 16px;font-size:11.5px;font-weight:600;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--dim);
   border-bottom:1px solid var(--line);display:flex;justify-content:space-between}
 .card .body{max-height:330px;overflow:auto}
 table{width:100%;border-collapse:collapse;font-size:13px}
@@ -41,7 +56,7 @@ th{position:sticky;top:0;background:var(--panel);text-align:left;font-weight:500
 td{padding:8px 16px;border-bottom:1px solid #24272C}
 tr[data-i],tr[data-s],tr[data-a]{cursor:pointer}
 tr:hover td{background:#23262C}
-tr.sel td{background:#33202A;color:#FFD9E2}
+tr.sel td{background:rgba(127,168,217,.14);color:var(--accent)}
 .n{text-align:right;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
 .dim{color:var(--dim)}
 .empty{padding:16px;color:var(--dim);font-size:13px}
