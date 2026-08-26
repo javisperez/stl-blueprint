@@ -8,6 +8,10 @@
     "type": "git",
     "url": "git+https://github.com/javisperez/stl-blueprint.git"
   },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.33.0",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
