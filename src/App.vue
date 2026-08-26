@@ -1,79 +1,133 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { initApp } from './engine/blueprint'
+import { onMounted, ref, nextTick, watch } from 'vue'
+import { initApp, draw, setSingleView } from './engine/blueprint'
 import IconUpload from '~icons/tabler/upload'
 import IconCube from '~icons/tabler/cube'
 import IconRuler from '~icons/tabler/ruler-2'
 import IconDownload from '~icons/tabler/download'
+import IconEye from '~icons/tabler/eye'
+import IconSettings from '~icons/tabler/settings'
+
+const activeTab = ref<'viewer' | 'measurements' | 'export' | 'settings'>('viewer')
+
+// on mobile the sheet shows one view at a time (four panes at once is unreadable);
+// on desktop the engine always draws the full 4-up sheet regardless of this value
+const singleView = ref<0 | 1 | 2 | 3>(0)
+const desktopQuery = window.matchMedia('(min-width: 900px)')
+const isDesktop = ref(desktopQuery.matches)
+
+function syncViewMode() {
+  setSingleView(isDesktop.value ? null : singleView.value)
+}
+
+function selectView(i: 0 | 1 | 2 | 3) {
+  singleView.value = i
+  if (!isDesktop.value) setSingleView(i)
+}
+
+watch(activeTab, async (tab) => {
+  if (tab === 'viewer') {
+    await nextTick()
+    draw()
+  }
+})
 
 onMounted(() => {
   initApp()
+  syncViewMode()
+  desktopQuery.addEventListener('change', (e) => {
+    isDesktop.value = e.matches
+    syncViewMode()
+  })
 })
 </script>
 
 <template>
-  <header>
-    <div class="titlebar">
-      <h1>STL Blueprint <span>&mdash; measured drawings from a mesh</span></h1>
-    </div>
-    <div class="toolbar">
+  <header class="titlebar">
+    <h1>
+      <span class="title-mobile">STL Blueprint Viewer</span><span class="title-desktop">STL Blueprint</span><span id="fileName" class="file-name"></span>
+    </h1>
+    <div class="actions">
       <div class="group">
         <label class="file icon-btn"><IconUpload class="ico" />Open STL<input type="file" id="file" accept=".stl"></label>
-        <button id="sample" class="icon-btn"><IconCube class="ico" />Sample part</button>
+        <button id="sample" class="icon-btn"><IconCube class="ico" />Sample Part</button>
       </div>
-      <div class="sep"></div>
-      <span class="unit"><IconRuler class="ico dim" />file
-        <select id="srcUnit"><option value="1" selected>mm</option><option value="10">cm</option><option value="25.4">in</option></select>
-        &rarr; show
-        <select id="dspUnit"><option value="1" selected>mm</option><option value="10">cm</option><option value="25.4">in</option></select>
-      </span>
-      <div class="sep"></div>
-      <span class="unit"><IconDownload class="ico dim" />export
-        <select id="exportSel">
-          <option value="">choose…</option>
-          <option value="png">PNG &mdash; as shown</option>
-          <option value="svg">SVG &mdash; vector line art</option>
-          <option value="dxf">DXF R12 &mdash; CAD, 1:1</option>
-          <option value="csv">CSV &mdash; measurements</option>
-          <option value="json">JSON &mdash; model for an AI to read</option>
-          <option value="scad">OpenSCAD &mdash; editable rebuild script</option>
-        </select>
-      </span>
+      <div id="settingsSection" class="tab-section toolbar-section" :class="{ active: activeTab === 'settings' }">
+        <span class="unit"><IconRuler class="ico dim" />file
+          <select id="srcUnit"><option value="1" selected>mm</option><option value="10">cm</option><option value="25.4">in</option></select>
+          &rarr; show
+          <select id="dspUnit"><option value="1" selected>mm</option><option value="10">cm</option><option value="25.4">in</option></select>
+        </span>
+      </div>
+      <div id="exportSection" class="tab-section toolbar-section" :class="{ active: activeTab === 'export' }">
+        <span class="unit export-select"><IconDownload class="ico dim" />
+          <select id="exportSel">
+            <option value="" selected>Export</option>
+            <option value="png">PNG &mdash; as shown</option>
+            <option value="svg">SVG &mdash; vector line art</option>
+            <option value="dxf">DXF R12 &mdash; CAD, 1:1</option>
+            <option value="csv">CSV &mdash; measurements</option>
+            <option value="json">JSON &mdash; model for an AI to read</option>
+            <option value="scad">OpenSCAD &mdash; editable rebuild script</option>
+          </select>
+        </span>
+      </div>
     </div>
   </header>
   <main>
     <div class="status" id="status"></div>
     <div id="drop">Drop an STL here, or use <b>Open STL</b> above.</div>
     <div id="panel" hidden>
-      <div class="sheet-wrap">
-        <canvas id="sheet"></canvas>
-        <select id="topSel" class="pane-select"><option value="top" selected>Top</option><option value="bottom">Bottom</option></select>
-        <select id="elevSel" class="pane-select"><option value="front" selected>Front</option><option value="right">Right</option></select>
-        <select id="fourthSel" class="pane-select"><option value="section">Section A-A</option><option value="other" id="otherOpt">Right view</option></select>
-      </div>
-      <div class="cols">
-        <div class="stack">
-          <div class="card">
-            <h3><span>Round &amp; spherical features</span><span id="featCount"></span></h3>
-            <div class="body" id="featBody"></div>
+      <div id="viewerCol">
+        <div id="viewerSection" class="tab-section" :class="{ active: activeTab === 'viewer' }">
+          <div class="view-tabs">
+            <button type="button" :class="{ active: singleView === 0 }" @click="selectView(0)">Top</button>
+            <button type="button" :class="{ active: singleView === 1 }" @click="selectView(1)">ISO</button>
+            <button type="button" :class="{ active: singleView === 2 }" @click="selectView(2)">Front</button>
+            <button type="button" :class="{ active: singleView === 3 }" @click="selectView(3)">Section</button>
           </div>
-          <div class="card">
-            <h3><span>Inclined faces</span></h3>
-            <div class="body" id="angBody"></div>
+          <div class="sheet-wrap">
+            <canvas id="sheet"></canvas>
+            <select id="topSel" class="pane-select"><option value="top" selected>Top</option><option value="bottom">Bottom</option></select>
+            <select id="elevSel" class="pane-select"><option value="front" selected>Front</option><option value="right">Right</option></select>
+            <select id="fourthSel" class="pane-select"><option value="section">Section A-A</option><option value="other" id="otherOpt">Right view</option></select>
           </div>
         </div>
-        <div class="stack">
-          <div class="card">
-            <h3><span>Steps &amp; sections</span><span id="stepCount"></span></h3>
-            <div class="body" id="stepBody"></div>
-          </div>
-          <div class="card">
-            <h3>Part</h3>
-            <div class="body"><dl id="partBody" style="margin:0"></dl></div>
-          </div>
+        <div id="statusBar" class="status-bar">
+          <div id="statusBarBody"></div>
         </div>
       </div>
-      <footer id="note"></footer>
+      <div id="measurementsSection" class="tab-section" :class="{ active: activeTab === 'measurements' }">
+        <div class="cols">
+          <div class="stack">
+            <div class="card">
+              <h3><span>Round &amp; spherical features</span><span id="featCount"></span></h3>
+              <div class="body" id="featBody"></div>
+            </div>
+            <div class="card">
+              <h3><span>Inclined faces</span></h3>
+              <div class="body" id="angBody"></div>
+            </div>
+          </div>
+          <div class="stack">
+            <div class="card" id="stepsCard">
+              <h3><span>Steps &amp; sections</span><span id="stepCount"></span></h3>
+              <div class="body" id="stepBody"></div>
+            </div>
+            <div class="card" id="partCard">
+              <h3>Part</h3>
+              <div class="body"><dl id="partBody" style="margin:0"></dl></div>
+            </div>
+          </div>
+        </div>
+        <footer id="note"></footer>
+      </div>
     </div>
   </main>
+  <nav class="tabbar">
+    <button type="button" :class="{ active: activeTab === 'viewer' }" @click="activeTab = 'viewer'"><IconEye class="ico" /><span>Viewer</span></button>
+    <button type="button" :class="{ active: activeTab === 'measurements' }" @click="activeTab = 'measurements'"><IconRuler class="ico" /><span>Measurements</span></button>
+    <button type="button" :class="{ active: activeTab === 'export' }" @click="activeTab = 'export'"><IconDownload class="ico" /><span>Export</span></button>
+    <button type="button" :class="{ active: activeTab === 'settings' }" @click="activeTab = 'settings'"><IconSettings class="ico" /><span>Settings</span></button>
+  </nav>
 </template>

@@ -902,10 +902,12 @@ const V_SEC_R =mkView("SECTION A-A",[-1,0,0],[0,0,1],"Y \u2192  Z \u2191");
 /* ============================================================
    Sheet
    ============================================================ */
-const SHEET="#D9DCD4", PENCIL="#24272C", BLUE="#1F4E8C", CENTRE="#8B8F86", RED="#B3123B";
-const HATCH="#767B70";
+const SHEET="#13284B", PENCIL="#EAF1FB", BLUE="#8FC1FF", CENTRE="#5C7CA6", RED="#FF4F70";
+const HATCH="#5E7FA8";
+const GRID="#4A6C96", DIM_TEXT="#9FB8D9", HINT_TEXT="#7E97BE", HIDDEN="#4A6688";
 const MONO='11px ui-monospace,"SF Mono",Menlo,Consolas,monospace';
-const SHEETINFO={pane:null,scale:1,ctr:[0,0,0],gridX:0,gridY:0};
+const SHEETINFO={pane:null,scale:1,ctr:[0,0,0],gridX:0,gridY:0,single:false};
+let SINGLE_VIEW=null; // null = full 4-up sheet; 0..3 = one pane shown full-size (mobile)
 
 function sheetLayout(cssW,M,S){
   const cssH=Math.round(cssW*0.82);
@@ -942,12 +944,12 @@ function paintSheet(g,L,M,A,S){
   g.fillStyle=SHEET; g.fillRect(0,0,L.cssW,L.cssH);
   g.strokeStyle=PENCIL; g.lineWidth=1.4;
   g.strokeRect(L.PAD+.5,L.PAD+.5,L.cssW-2*L.PAD-1,L.cssH-2*L.PAD-1);
-  g.lineWidth=.6; g.strokeStyle="#9EA398";
+  g.lineWidth=.6; g.strokeStyle=GRID;
   g.strokeRect(L.PAD+5.5,L.PAD+5.5,L.cssW-2*L.PAD-11,L.cssH-2*L.PAD-11);
   for(let i=0;i<4;i++) drawView(g,L.panes[i],L.views[i],M,A,L.scale,L.ctr,S,false,i!==1);
   // a light cross separating the four panes, like a printed sheet's fold/grid lines
   g.__mark&&g.__mark("grid");
-  g.strokeStyle="#9EA398"; g.lineWidth=.6;
+  g.strokeStyle=GRID; g.lineWidth=.6;
   g.beginPath();
   g.moveTo(L.gridX,L.area.y); g.lineTo(L.gridX,L.area.y+L.area.h);
   g.moveTo(L.area.x,L.gridY); g.lineTo(L.area.x+L.area.w,L.gridY);
@@ -964,7 +966,7 @@ function drawSheet(cv,M,A,S){
   const g=cv.getContext("2d");
   g.setTransform(dpr,0,0,dpr,0,0);
   SHEETINFO.pane=L.panes[1]; SHEETINFO.scale=L.scale; SHEETINFO.ctr=L.ctr;
-  SHEETINFO.gridX=L.gridX; SHEETINFO.gridY=L.gridY;
+  SHEETINFO.gridX=L.gridX; SHEETINFO.gridY=L.gridY; SHEETINFO.single=false;
   paintSheet(g,L,M,A,S);
   positionPaneSelects(L);
 }
@@ -974,12 +976,80 @@ function positionPaneSelects(L){
   const put=(id,pane)=>{
     const el=document.getElementById(id);
     if(!el||!pane) return;
+    el.style.display="";
     el.style.left=(pane.x+1)+"px";
     el.style.top=(pane.y-3)+"px";
   };
   put("topSel",L.panes[0]);
   put("elevSel",L.panes[2]);
   put("fourthSel",L.panes[3]);
+}
+
+/* Single-pane layout: one view fills the whole sheet instead of a quartered
+   grid, used on narrow screens where four panes at once are unreadable. */
+function sheetLayoutSingle(cssW,M,S,idx){
+  const cssH=Math.round(cssW*1.3);
+  const PAD=13, TB=78;
+  const area={x:PAD+12,y:PAD+12,w:cssW-2*PAD-24,h:cssH-2*PAD-24-TB};
+  const pane={x:area.x,y:area.y,w:area.w,h:area.h};
+  const plan=S.top==="bottom"?V_BOTTOM:V_TOP;
+  const elev=S.elev==="right"?V_RIGHT:V_FRONT;
+  const other=S.elev==="right"?V_FRONT:V_RIGHT;
+  const sec=S.elev==="right"?V_SEC_R:V_SEC;
+  const views=[plan,isoView(ISO.az,ISO.el),elev,S.fourth==="section"?sec:other];
+  const standard=(S.top!=="bottom"&&S.elev!=="right");
+  const ctr=[(M.mn[0]+M.mx[0])/2,(M.mn[1]+M.mx[1])/2,(M.mn[2]+M.mx[2])/2];
+  const corners=[];
+  for(let i=0;i<8;i++) corners.push([(i&1?M.mx[0]:M.mn[0])-ctr[0],(i&2?M.mx[1]:M.mn[1])-ctr[1],(i&4?M.mx[2]:M.mn[2])-ctr[2]]);
+  const V=views[idx];
+  let w=0,h=0;
+  for(const c of corners){
+    w=Math.max(w,Math.abs(c[0]*V.r[0]+c[1]*V.r[1]+c[2]*V.r[2])*2);
+    h=Math.max(h,Math.abs(c[0]*V.u[0]+c[1]*V.u[1]+c[2]*V.u[2])*2);
+  }
+  const scale=Math.min((pane.w-132)/Math.max(w,1e-6),(pane.h-124)/Math.max(h,1e-6));
+  return {cssW,cssH,PAD,TB,area,panes:[pane],views,idx,ctr,scale,standard,
+          title:{x:area.x,y:area.y+area.h+6,w:area.w,h:TB-6}};
+}
+
+function paintSheetSingle(g,L,M,A,S){
+  g.fillStyle=SHEET; g.fillRect(0,0,L.cssW,L.cssH);
+  g.strokeStyle=PENCIL; g.lineWidth=1.4;
+  g.strokeRect(L.PAD+.5,L.PAD+.5,L.cssW-2*L.PAD-1,L.cssH-2*L.PAD-1);
+  g.lineWidth=.6; g.strokeStyle=GRID;
+  g.strokeRect(L.PAD+5.5,L.PAD+5.5,L.cssW-2*L.PAD-11,L.cssH-2*L.PAD-11);
+  drawView(g,L.panes[0],L.views[L.idx],M,A,L.scale,L.ctr,S,false,L.idx!==1);
+  drawTitleBlock(g,L.title,M,S,L.scale,L.standard);
+}
+
+function drawSheetSingle(cv,M,A,S,idx){
+  const cssW=cv.clientWidth||960;
+  const L=sheetLayoutSingle(cssW,M,S,idx);
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  cv.width=L.cssW*dpr; cv.height=L.cssH*dpr; cv.style.height=L.cssH+"px";
+  const g=cv.getContext("2d");
+  g.setTransform(dpr,0,0,dpr,0,0);
+  if(idx===1){ SHEETINFO.pane=L.panes[0]; SHEETINFO.scale=L.scale; SHEETINFO.ctr=L.ctr; }
+  else SHEETINFO.pane=null;
+  SHEETINFO.single=true;
+  paintSheetSingle(g,L,M,A,S);
+  positionPaneSelectsSingle(L,idx);
+}
+
+// in single-view mode only the select matching the visible pane is shown
+function positionPaneSelectsSingle(L,idx){
+  const slots=[["topSel",0],["elevSel",2],["fourthSel",3]];
+  slots.forEach(([id,i])=>{
+    const el=document.getElementById(id);
+    if(!el) return;
+    if(i===idx){
+      el.style.display="";
+      el.style.left=(L.panes[0].x+1)+"px";
+      el.style.top=(L.panes[0].y-3)+"px";
+    } else {
+      el.style.display="none";
+    }
+  });
 }
 
 function drawView(g,P,V,M,A,scale,ctr,S,quick,hasSelect){
@@ -1055,7 +1125,8 @@ function drawView(g,P,V,M,A,scale,ctr,S,quick,hasSelect){
       let fill=SHEET;
       if(iso){
         const l=Math.max(0,M.fn[f*3]*-0.42+M.fn[f*3+1]*-0.55+M.fn[f*3+2]*0.72);
-        const v=Math.round(196+l*52); fill=`rgb(${v},${v+3},${v-6})`;
+        const r=Math.round(19+l*121), gg=Math.round(40+l*140), b=Math.round(75+l*155);
+        fill=`rgb(${r},${gg},${b})`;
       }
       g.fillStyle=fill; g.strokeStyle=fill; g.lineWidth=.8;
       g.beginPath(); g.moveTo(sx[a],sy[a]); g.lineTo(sx[b],sy[b]); g.lineTo(sx[c],sy[c]); g.closePath();
@@ -1095,12 +1166,12 @@ function drawView(g,P,V,M,A,scale,ctr,S,quick,hasSelect){
   // on screen, panes with a live view-picker show the name via the <select> overlay instead
   if(!hasSelect||S.forExport){
     g.fillText(V.name,P.x+4,P.y+3);
-    if(V.ax){ g.font=MONO; g.fillStyle="#797E74"; g.fillText(V.ax,P.x+4+g.measureText(V.name).width+12,P.y+3.5); }
+    if(V.ax){ g.font=MONO; g.fillStyle=DIM_TEXT; g.fillText(V.ax,P.x+4+g.measureText(V.name).width+12,P.y+3.5); }
   } else if(V.ax){
-    g.font=MONO; g.fillStyle="#797E74"; g.fillText(V.ax,P.x+4,P.y+19);
+    g.font=MONO; g.fillStyle=DIM_TEXT; g.fillText(V.ax,P.x+4,P.y+19);
   }
   if(iso&&!S.forExport){          // on-screen affordances, not drawing content
-    g.font=MONO; g.fillStyle="#8E9389"; g.textAlign="left"; g.textBaseline="bottom";
+    g.font=MONO; g.fillStyle=HINT_TEXT; g.textAlign="left"; g.textBaseline="bottom";
     g.fillText("drag to rotate \u00b7 double-click to reset",P.x+4,P.y+P.h-3);
     g.textBaseline="top";
     const el=Math.round(ISO.el*180/Math.PI), az=Math.round(((ISO.az*180/Math.PI)%360+360)%360);
@@ -1276,7 +1347,7 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
       let dx=b[0]-a[0],dy=b[1]-a[1];const L=Math.hypot(dx,dy)||1;dx/=L;dy/=L;
       const px=-dy*c.radius*scale, py=dx*c.radius*scale;
       g.save();
-      g.strokeStyle=c===S.hi?RED:"#5C6158"; g.lineWidth=c===S.hi?1.3:.95; g.setLineDash([6,3.5]);
+      g.strokeStyle=c===S.hi?RED:HIDDEN; g.lineWidth=c===S.hi?1.3:.95; g.setLineDash([6,3.5]);
       g.beginPath();
       g.moveTo(a[0]+px,a[1]+py); g.lineTo(b[0]+px,b[1]+py);
       g.moveTo(a[0]-px,a[1]-py); g.lineTo(b[0]-px,b[1]-py);
@@ -1372,7 +1443,7 @@ function drawTitleBlock(g,B,M,S,scale,standard){
     const x=B.x+i*w;
     if(i){ g.beginPath(); g.moveTo(x+.5,B.y); g.lineTo(x+.5,B.y+B.h); g.lineWidth=.7; g.stroke(); }
     g.font='9px ui-monospace,"SF Mono",Menlo,Consolas,monospace';
-    g.fillStyle="#7C8177"; g.textAlign="left"; g.textBaseline="top";
+    g.fillStyle=DIM_TEXT; g.textAlign="left"; g.textBaseline="top";
     g.fillText(cells[i][0],x+8,B.y+8);
     g.font='600 12px ui-monospace,"SF Mono",Menlo,Consolas,monospace';
     g.fillStyle=PENCIL;
@@ -1381,7 +1452,7 @@ function drawTitleBlock(g,B,M,S,scale,standard){
     g.fillText(t,x+8,B.y+24);
   }
   if(!standard){
-    g.font=MONO; g.fillStyle="#7C8177"; g.textAlign="right"; g.textBaseline="bottom";
+    g.font=MONO; g.fillStyle=DIM_TEXT; g.textAlign="right"; g.textBaseline="bottom";
     g.fillText("views rearranged \u2014 see pane labels",B.x+B.w-10,B.y+B.h-8);
     g.textAlign="left"; return;
   }
@@ -1720,7 +1791,7 @@ function dxfLayerFor(it){
   if(c===BLUE||c===RED) return "DIMS";
   if(c===CENTRE) return "CENTRE";
   if(c===HATCH) return "HATCH";
-  if(c==="#5C6158") return "HIDDEN";
+  if(c===HIDDEN) return "HIDDEN";
   if(c===PENCIL) return it.phase==="sec"?"SECTION":(it.phase==="frame"||it.phase==="title"?"FRAME":"OUTLINE");
   return "FRAME";
 }
@@ -2339,14 +2410,21 @@ function status(msg,busy){
   el.className="status"+(busy?" busy":"");
 }
 let BG=null, DRAG=null, RAF=0;
-function draw(){
+export function draw(){
   if(!MESH||!A) return;
   const cv=$("#sheet");
-  drawSheet(cv,MESH,A,state());
+  if(SINGLE_VIEW===null) drawSheet(cv,MESH,A,state());
+  else drawSheetSingle(cv,MESH,A,state(),SINGLE_VIEW);
   if(!BG) BG=document.createElement("canvas");
   if(BG.width!==cv.width||BG.height!==cv.height){ BG.width=cv.width; BG.height=cv.height; }
   const bg=BG.getContext("2d");
   bg.setTransform(1,0,0,1,0,0); bg.clearRect(0,0,BG.width,BG.height); bg.drawImage(cv,0,0);
+}
+// called from the host app to switch between the full 4-up sheet (null) and
+// a single pane shown full-size (0=plan,1=iso,2=elevation,3=section/4th)
+export function setSingleView(idx){
+  SINGLE_VIEW=idx;
+  draw();
 }
 /* Repaint only the ISO pane: blit the cached sheet, then redraw that one view.
    A full sheet is far too slow to run on every pointermove. */
@@ -2360,14 +2438,16 @@ function drawIso(quick){
   g.fillStyle=SHEET; g.fillRect(P.x,P.y,P.w,P.h);
   drawView(g,P,isoView(ISO.az,ISO.el),MESH,A,SHEETINFO.scale,SHEETINFO.ctr,state(),quick);
   g.restore();
-  // the fill above paints over its half of the shared grid lines - put them back
-  g.save(); g.setTransform(dpr,0,0,dpr,0,0);
-  g.strokeStyle="#9EA398"; g.lineWidth=.6;
-  g.beginPath();
-  g.moveTo(SHEETINFO.gridX,P.y); g.lineTo(SHEETINFO.gridX,P.y+P.h);
-  g.moveTo(P.x,SHEETINFO.gridY); g.lineTo(P.x+P.w,SHEETINFO.gridY);
-  g.stroke();
-  g.restore();
+  if(!SHEETINFO.single){
+    // the fill above paints over its half of the shared grid lines - put them back
+    g.save(); g.setTransform(dpr,0,0,dpr,0,0);
+    g.strokeStyle=GRID; g.lineWidth=.6;
+    g.beginPath();
+    g.moveTo(SHEETINFO.gridX,P.y); g.lineTo(SHEETINFO.gridX,P.y+P.h);
+    g.moveTo(P.x,SHEETINFO.gridY); g.lineTo(P.x+P.w,SHEETINFO.gridY);
+    g.stroke();
+    g.restore();
+  }
 }
 function inIso(cv,e){
   const P=SHEETINFO.pane; if(!P) return false;
@@ -2422,6 +2502,7 @@ function renderTables(){
   }
 
   // steps
+  document.getElementById("stepsCard")?.classList.toggle("is-empty",!A.steps.length);
   if(!A.steps.length){
     $("#stepBody").innerHTML='<div class="empty">Nothing between the outer faces to measure against \u2014 the overall extents are the whole story.</div>';
     $("#stepCount").textContent="";
@@ -2453,6 +2534,15 @@ function renderTables(){
     ["Triangles",M.nf.toLocaleString()],
     ["Mesh",M.watertight?"closed":M.openEdges+" free edges"],
   ].map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join("");
+
+  const statusBar=document.getElementById("statusBarBody");
+  if(statusBar) statusBar.innerHTML=[
+    ["Part",S.name||"—"],
+    ["Bounding box",ext.join(" × ")+" "+S.u],
+    ["Volume",S.fmt3(M.volume/Math.pow(S.k,3))+" "+S.u+"³"],
+    ["Triangles",M.nf.toLocaleString()],
+    ["Mesh",M.watertight?"closed":M.openEdges+" free edges"],
+  ].map(([k,v])=>`<span class="stat"><b>${k}</b>${v}</span>`).join("");
 }
 
 async function loadSample(){
@@ -2485,6 +2575,7 @@ function load(tris,name){
       MESH=buildMesh(tris);
       if(!MESH||!MESH.nf){ status("no triangles in that file"); return; }
       NAME=name; HI=null; HISTEP=null;
+      const fn=document.getElementById("fileName"); if(fn) fn.textContent=name;
       const t0=performance.now();
       A=analyse(MESH);
       FOURTH=A.feats.some(f=>f.hole)?"section":"other";
