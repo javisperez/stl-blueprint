@@ -1352,59 +1352,6 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
   const chainV=A.steps.find(s=>s.ai===vAx), chainH=A.steps.find(s=>s.ai===hAx);
   const levelPt=(ai,t)=>{const p=[ctr[0],ctr[1],ctr[2]];p[ai]=t;return proj(p);};
 
-  if(chainV){
-    const baseXL=Math.max(x0-26,P.x+16), baseXR=Math.min(x1+26,P.x+P.w-16);
-    const midX=(x0+x1)/2, spread=(x1-x0)*0.12;
-    let prevMidL=null, staggerL=0, prevMidR=null, staggerR=0;
-    for(const sg of chainV.segs){
-      const ya=levelPt(vAx,sg.a)[1], yb=levelPt(vAx,sg.b)[1];
-      if(Math.abs(ya-yb)<9) continue;
-      const midY=(ya+yb)/2;
-      // stacking every height on the left regardless of geometry made witness lines
-      // cross the whole part for a step that's really only on the right side - send
-      // it to whichever margin its own boundary actually sits toward instead
-      const pts=[sg.cA,sg.cB].filter(Boolean).map(c=>proj(c)[0]);
-      const avgX=pts.length?pts.reduce((s,v)=>s+v,0)/pts.length:midX;
-      const right=avgX>midX+spread;
-      let dimX;
-      if(right){
-        staggerR=(prevMidR!==null&&Math.abs(midY-prevMidR)<13)?staggerR+1:0;
-        dimX=baseXR+staggerR*15;
-        prevMidR=midY;
-      } else {
-        // consecutive short segments can put their labels close enough to collide -
-        // step the dimension line outward until there's clear air between them
-        staggerL=(prevMidL!==null&&Math.abs(midY-prevMidL)<13)?staggerL+1:0;
-        dimX=baseXL-staggerL*15;
-        prevMidL=midY;
-      }
-      reg(sg,[[dimX,ya,dimX,yb]]);
-      if(visible(sg)) dimV(g,ya,yb,right?x1:x0,dimX,S.fmt(sg.len),S.hiStep===sg||isHover(sg));
-      if(isHover(sg)){ hoverGuideH(ya); hoverGuideH(yb); }
-    }
-  }
-  if(chainH&&!isSec){
-    const baseY=Math.min(y1+26,P.y+P.h-16);
-    let prevMid=null, stagger=0;
-    for(const sg of chainH.segs){
-      const xa=levelPt(hAx,sg.a)[0], xb=levelPt(hAx,sg.b)[0];
-      if(Math.abs(xa-xb)<26) continue;
-      const mid=(xa+xb)/2;
-      stagger=(prevMid!==null&&Math.abs(mid-prevMid)<30)?stagger+1:0;
-      const dimY=Math.min(baseY+stagger*15,P.y+P.h-16);
-      reg(sg,[[xa,dimY,xb,dimY]]);
-      if(visible(sg)) dimH(g,xa,xb,y1,dimY,S.fmt(sg.len),S.hiStep===sg||isHover(sg));
-      if(isHover(sg)){ hoverGuideV(xa); hoverGuideV(xb); }
-      prevMid=mid;
-    }
-  }
-  {
-    const dimX=Math.max(x0-(chainV?54:26),P.x+12), kOV=V.name+"|overallV";
-    reg(kOV,[[dimX,y0,dimX,y1]]);
-    if(visible(kOV)) dimV(g,y0,y1,x0,dimX,S.fmt((y1-y0)/scale),isHover(kOV));
-    if(isHover(kOV)){ hoverGuideH(y0); hoverGuideH(y1); }
-  }
-
   const axial=[],lateral=[];
   for(const f of A.feats){
     if(f.kind==="sph") continue;
@@ -1532,6 +1479,61 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
       g.beginPath(); g.arc(m[0],m[1],R,0,7); g.stroke(); g.restore(); }
     leader(g,ax,ay,ux,uy,17,
            "\u00D8"+S.fmt(c.radius*2)+(c.through?" THRU":(c.hole?" \u2193"+S.fmt(c.len):"")),on);
+  }
+
+  // the step chain paints last so its labels win against a diameter/angle leader that
+  // happens to land in the same corner, instead of getting silently painted over
+  if(chainV){
+    const baseXL=Math.max(x0-26,P.x+16), baseXR=Math.min(x1+26,P.x+P.w-16);
+    const midX=(x0+x1)/2, spread=(x1-x0)*0.12;
+    let prevMidL=null, staggerL=0, prevMidR=null, staggerR=0;
+    for(const sg of chainV.segs){
+      const ya=levelPt(vAx,sg.a)[1], yb=levelPt(vAx,sg.b)[1];
+      if(Math.abs(ya-yb)<6) continue;
+      const midY=(ya+yb)/2;
+      // stacking every height on the left regardless of geometry made witness lines
+      // cross the whole part for a step that's really only on the right side - send
+      // it to whichever margin its own boundary actually sits toward instead
+      const pts=[sg.cA,sg.cB].filter(Boolean).map(c=>proj(c)[0]);
+      const avgX=pts.length?pts.reduce((s,v)=>s+v,0)/pts.length:midX;
+      const right=avgX>midX+spread;
+      let dimX;
+      if(right){
+        staggerR=(prevMidR!==null&&Math.abs(midY-prevMidR)<13)?staggerR+1:0;
+        dimX=baseXR+staggerR*15;
+        prevMidR=midY;
+      } else {
+        // consecutive short segments can put their labels close enough to collide -
+        // step the dimension line outward until there's clear air between them
+        staggerL=(prevMidL!==null&&Math.abs(midY-prevMidL)<13)?staggerL+1:0;
+        dimX=baseXL-staggerL*15;
+        prevMidL=midY;
+      }
+      reg(sg,[[dimX,ya,dimX,yb]]);
+      if(visible(sg)) dimV(g,ya,yb,right?x1:x0,dimX,S.fmt(sg.len),S.hiStep===sg||isHover(sg));
+      if(isHover(sg)){ hoverGuideH(ya); hoverGuideH(yb); }
+    }
+  }
+  if(chainH&&!isSec){
+    const baseY=Math.min(y1+26,P.y+P.h-16);
+    let prevMid=null, stagger=0;
+    for(const sg of chainH.segs){
+      const xa=levelPt(hAx,sg.a)[0], xb=levelPt(hAx,sg.b)[0];
+      if(Math.abs(xa-xb)<26) continue;
+      const mid=(xa+xb)/2;
+      stagger=(prevMid!==null&&Math.abs(mid-prevMid)<30)?stagger+1:0;
+      const dimY=Math.min(baseY+stagger*15,P.y+P.h-16);
+      reg(sg,[[xa,dimY,xb,dimY]]);
+      if(visible(sg)) dimH(g,xa,xb,y1,dimY,S.fmt(sg.len),S.hiStep===sg||isHover(sg));
+      if(isHover(sg)){ hoverGuideV(xa); hoverGuideV(xb); }
+      prevMid=mid;
+    }
+  }
+  {
+    const dimX=Math.max(x0-(chainV?54:26),P.x+12), kOV=V.name+"|overallV";
+    reg(kOV,[[dimX,y0,dimX,y1]]);
+    if(visible(kOV)) dimV(g,y0,y1,x0,dimX,S.fmt((y1-y0)/scale),isHover(kOV));
+    if(isHover(kOV)){ hoverGuideH(y0); hoverGuideH(y1); }
   }
 }
 
