@@ -804,14 +804,16 @@ function findSteps(M,planes,feats,angles,up){
     }
     // a feature only marks levels along its OWN axis, never sideways
     const alignedUp=Math.abs(up[0]*e[0]+up[1]*e[1]+up[2]*e[2])>0.98;
+    // features and angles are already curated upstream (buildFeatures dedupes and
+    // area-gates them before they get here) - re-gating with a stricter threshold
+    // just meant a feature could show up in the tables but never earn a dimension
     const bits=[];
     for(const f of feats){
-      if(f.area<M.area*0.025) continue;
       if(f.kind==="cyl"||f.kind==="cone"){
         if(Math.abs(f.axis[0]*e[0]+f.axis[1]*e[1]+f.axis[2]*e[2])>0.98) bits.push({faces:f.faces,w:f.area});
       } else if(f.kind==="sph"&&alignedUp) bits.push({faces:f.faces,w:f.area});
     }
-    if(alignedUp) for(const a of angles) if(a.area>=M.area*0.02) bits.push({faces:a.faces,w:a.area});
+    if(alignedUp) for(const a of angles) bits.push({faces:a.faces,w:a.area});
     for(const b of bits){
       const [lo,hi]=axialSpan(M,b.faces,e,[0,0,0]);
       cand.push({t:lo,w:b.w}); cand.push({t:hi,w:b.w});
@@ -832,8 +834,12 @@ function findSteps(M,planes,feats,angles,up){
     }
     let inner=merged.filter(m=>m.t>lo+tol&&m.t<hi-tol);
     if(!inner.length) continue;
+    // ranking by weight used to also be the ONLY thing keeping a chain readable, so it
+    // cut off hard at 6/4 levels - now that dimensions can be hidden or hover-isolated
+    // on screen, an under-cap that silently drops a real boundary (a recognised feature
+    // just missing its own line) is worse than a chain with a few more entries in it
     inner.sort((a,b)=>b.w-a.w);
-    inner=inner.slice(0,alignedUp?6:4).sort((a,b)=>a.t-b.t);
+    inner=inner.slice(0,alignedUp?12:8).sort((a,b)=>a.t-b.t);
     const ts=[lo,...inner.map(m=>m.t),hi];
     const uniq=[]; for(const t of ts) if(!uniq.length||t-uniq[uniq.length-1]>tol) uniq.push(t);
     if(uniq.length<3) continue;
