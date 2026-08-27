@@ -1342,6 +1342,29 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
     g.save(); g.strokeStyle=RED; g.lineWidth=1; g.setLineDash([7,4]); g.globalAlpha=.55;
     g.beginPath(); g.moveTo(x,P.y+2); g.lineTo(x,P.y+P.h-2); g.stroke(); g.restore();
   };
+  // a step chain packed tight enough to need staggering reads as a wall of numbers -
+  // draw the crowded ones as a bare tick (no arrows, no label) until hovered, so the
+  // default view stays quiet and the full callout still shows up on demand
+  const ghostTickV=(y1,y2,objX,dimX)=>{
+    g.save(); g.strokeStyle=DIM_TEXT; g.globalAlpha=.4; g.lineWidth=.75;
+    const s=Math.sign(dimX-objX)||1;
+    g.beginPath();
+    g.moveTo(objX+s*2.5,y1); g.lineTo(dimX+s*3.5,y1);
+    g.moveTo(objX+s*2.5,y2); g.lineTo(dimX+s*3.5,y2);
+    g.moveTo(dimX,y1); g.lineTo(dimX,y2);
+    g.stroke(); g.restore();
+  };
+  const ghostTickH=(xa,xb,objY,dimY)=>{
+    if(xb<xa)[xa,xb]=[xb,xa];
+    g.save(); g.strokeStyle=DIM_TEXT; g.globalAlpha=.4; g.lineWidth=.75;
+    const s=Math.sign(dimY-objY)||1;
+    g.beginPath();
+    g.moveTo(xa,objY+s*2.5); g.lineTo(xa,dimY+s*3.5);
+    g.moveTo(xb,objY+s*2.5); g.lineTo(xb,dimY+s*3.5);
+    g.moveTo(xa,dimY); g.lineTo(xb,dimY);
+    g.stroke(); g.restore();
+  };
+  let ghostCount=0;
 
   let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
   for(let i=0;i<8;i++){
@@ -1510,7 +1533,15 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
         prevMidL=midY;
       }
       reg(sg,[[dimX,ya,dimX,yb]]);
-      if(visible(sg)) dimV(g,ya,yb,right?x1:x0,dimX,S.fmt(sg.len),S.hiStep===sg||isHover(sg));
+      // primary = didn't need to stagger away from a same-side neighbour, i.e. it
+      // isn't part of a crowded run - those default to a ghost tick instead
+      const primary=(right?staggerR:staggerL)===0;
+      let mode;
+      if(S.forExport) mode="full";
+      else if(hover) mode=isHover(sg)?"full":"none";
+      else mode=primary?"full":"ghost";
+      if(mode==="full") dimV(g,ya,yb,right?x1:x0,dimX,S.fmt(sg.len),S.hiStep===sg||isHover(sg));
+      else if(mode==="ghost"){ ghostTickV(ya,yb,right?x1:x0,dimX); ghostCount++; }
       if(isHover(sg)){ hoverGuideH(ya); hoverGuideH(yb); }
     }
   }
@@ -1524,7 +1555,13 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
       stagger=(prevMid!==null&&Math.abs(mid-prevMid)<30)?stagger+1:0;
       const dimY=Math.min(baseY+stagger*15,P.y+P.h-16);
       reg(sg,[[xa,dimY,xb,dimY]]);
-      if(visible(sg)) dimH(g,xa,xb,y1,dimY,S.fmt(sg.len),S.hiStep===sg||isHover(sg));
+      const primary=stagger===0;
+      let mode;
+      if(S.forExport) mode="full";
+      else if(hover) mode=isHover(sg)?"full":"none";
+      else mode=primary?"full":"ghost";
+      if(mode==="full") dimH(g,xa,xb,y1,dimY,S.fmt(sg.len),S.hiStep===sg||isHover(sg));
+      else if(mode==="ghost"){ ghostTickH(xa,xb,y1,dimY); ghostCount++; }
       if(isHover(sg)){ hoverGuideV(xa); hoverGuideV(xb); }
       prevMid=mid;
     }
@@ -1534,6 +1571,11 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
     reg(kOV,[[dimX,y0,dimX,y1]]);
     if(visible(kOV)) dimV(g,y0,y1,x0,dimX,S.fmt((y1-y0)/scale),isHover(kOV));
     if(isHover(kOV)){ hoverGuideH(y0); hoverGuideH(y1); }
+  }
+  if(ghostCount&&!S.forExport&&!hover){
+    g.font=MONO; g.fillStyle=HINT_TEXT; g.textAlign="right"; g.textBaseline="bottom";
+    g.fillText("+"+ghostCount+" · hover to reveal",P.x+P.w-4,P.y+P.h-4);
+    g.textAlign="left";
   }
 }
 
