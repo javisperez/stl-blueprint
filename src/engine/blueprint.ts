@@ -1323,6 +1323,17 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
   const visible=obj=>!hover||hover===obj;
   const isHover=obj=>hover===obj;
   const reg=(obj,segs)=>{ if(!S.forExport) DIMHIT.push({obj,pane:P,segs}); };
+  // a hovered step's witness ticks sit in the margin, not on the feature that caused
+  // it (e.g. a short cylindrical band between two fillets) - draw a line straight
+  // through the drawing at that exact level so it's obvious which edge it is
+  const hoverGuideH=y=>{
+    g.save(); g.strokeStyle=RED; g.lineWidth=1; g.setLineDash([7,4]); g.globalAlpha=.55;
+    g.beginPath(); g.moveTo(P.x+2,y); g.lineTo(P.x+P.w-2,y); g.stroke(); g.restore();
+  };
+  const hoverGuideV=x=>{
+    g.save(); g.strokeStyle=RED; g.lineWidth=1; g.setLineDash([7,4]); g.globalAlpha=.55;
+    g.beginPath(); g.moveTo(x,P.y+2); g.lineTo(x,P.y+P.h-2); g.stroke(); g.restore();
+  };
 
   let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
   for(let i=0;i<8;i++){
@@ -1346,6 +1357,7 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
       const dimX=baseX-stagger*15;
       reg(sg,[[dimX,ya,dimX,yb]]);
       if(visible(sg)) dimV(g,ya,yb,x0,dimX,S.fmt(sg.len),S.hiStep===sg||isHover(sg));
+      if(isHover(sg)){ hoverGuideH(ya); hoverGuideH(yb); }
       prevMid=mid;
     }
   }
@@ -1360,6 +1372,7 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
       const dimY=Math.min(baseY+stagger*15,P.y+P.h-16);
       reg(sg,[[xa,dimY,xb,dimY]]);
       if(visible(sg)) dimH(g,xa,xb,y1,dimY,S.fmt(sg.len),S.hiStep===sg||isHover(sg));
+      if(isHover(sg)){ hoverGuideV(xa); hoverGuideV(xb); }
       prevMid=mid;
     }
   }
@@ -1367,6 +1380,7 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
     const dimX=Math.max(x0-(chainV?54:26),P.x+12), kOV=V.name+"|overallV";
     reg(kOV,[[dimX,y0,dimX,y1]]);
     if(visible(kOV)) dimV(g,y0,y1,x0,dimX,S.fmt((y1-y0)/scale),isHover(kOV));
+    if(isHover(kOV)){ hoverGuideH(y0); hoverGuideH(y1); }
   }
 
   const axial=[],lateral=[];
@@ -1391,6 +1405,7 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
     const dyOH=Math.min(y1+(chainH?54:26),P.y+P.h-12), kOH=V.name+"|overallH";
     reg(kOH,[[x0,dyOH,x1,dyOH]]);
     if(visible(kOH)) dimH(g,x0,x1,y1,dyOH,S.fmt((x1-x0)/scale),isHover(kOH));
+    if(isHover(kOH)){ hoverGuideV(x0); hoverGuideV(x1); }
     // bores seen from the side: dashed walls plus a centre line
     for(const c of lateral){
       if(!c.hole||c.kind!=="cyl") continue;
