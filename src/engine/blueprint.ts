@@ -800,7 +800,7 @@ function findSteps(M,planes,feats,angles,up){
       if(p.area<M.area*0.0015) continue;
       const dp=p.n[0]*e[0]+p.n[1]*e[1]+p.n[2]*e[2];
       if(Math.abs(dp)<0.985) continue;
-      cand.push({t:dp>0?p.d:-p.d,w:p.area});
+      cand.push({t:dp>0?p.d:-p.d,w:p.area,c:p.centroid});
     }
     // a feature only marks levels along its OWN axis, never sideways
     const alignedUp=Math.abs(up[0]*e[0]+up[1]*e[1]+up[2]*e[2])>0.98;
@@ -810,17 +810,18 @@ function findSteps(M,planes,feats,angles,up){
     const bits=[];
     for(const f of feats){
       if(f.kind==="cyl"||f.kind==="cone"){
-        if(Math.abs(f.axis[0]*e[0]+f.axis[1]*e[1]+f.axis[2]*e[2])>0.98) bits.push({faces:f.faces,w:f.area});
-      } else if(f.kind==="sph"&&alignedUp) bits.push({faces:f.faces,w:f.area});
+        if(Math.abs(f.axis[0]*e[0]+f.axis[1]*e[1]+f.axis[2]*e[2])>0.98) bits.push({faces:f.faces,w:f.area,c:f.mid});
+      } else if(f.kind==="sph"&&alignedUp) bits.push({faces:f.faces,w:f.area,c:f.mid});
     }
-    if(alignedUp) for(const a of angles) bits.push({faces:a.faces,w:a.area});
+    if(alignedUp) for(const a of angles) bits.push({faces:a.faces,w:a.area,c:a.centroid});
     for(const b of bits){
       const [lo,hi]=axialSpan(M,b.faces,e,[0,0,0]);
-      cand.push({t:lo,w:b.w}); cand.push({t:hi,w:b.w});
+      cand.push({t:lo,w:b.w,c:b.c}); cand.push({t:hi,w:b.w,c:b.c});
     }
     // creases the fitter never confidently claimed (an ambiguous taper, say) still
     // mark a real height boundary - only worth the extra clutter on the axis a
-    // body-of-revolution part is actually built around
+    // body-of-revolution part is actually built around. they're usually a full ring
+    // around the axis though, so there's no honest left/right side to report (c stays unset)
     if(alignedUp) for(const rg of axisRidges(M,e,tol)) cand.push(rg);
 
     if(!cand.length) continue;
@@ -829,8 +830,8 @@ function findSteps(M,planes,feats,angles,up){
     const merged=[];
     for(const c of cand){
       const last=merged[merged.length-1];
-      if(last&&Math.abs(c.t-last.t)<=tol) last.w=Math.max(last.w,c.w);
-      else merged.push({t:c.t,w:c.w});
+      if(last&&Math.abs(c.t-last.t)<=tol){ if(c.w>last.w){ last.w=c.w; last.c=c.c; } }
+      else merged.push({t:c.t,w:c.w,c:c.c});
     }
     let inner=merged.filter(m=>m.t>lo+tol&&m.t<hi-tol);
     if(!inner.length) continue;
@@ -840,11 +841,12 @@ function findSteps(M,planes,feats,angles,up){
     // just missing its own line) is worse than a chain with a few more entries in it
     inner.sort((a,b)=>b.w-a.w);
     inner=inner.slice(0,alignedUp?12:8).sort((a,b)=>a.t-b.t);
-    const ts=[lo,...inner.map(m=>m.t),hi];
-    const uniq=[]; for(const t of ts) if(!uniq.length||t-uniq[uniq.length-1]>tol) uniq.push(t);
+    const ts=[{t:lo,c:null},...inner.map(m=>({t:m.t,c:m.c})),{t:hi,c:null}];
+    const uniq=[]; for(const p of ts) if(!uniq.length||p.t-uniq[uniq.length-1].t>tol) uniq.push(p);
     if(uniq.length<3) continue;
     const segs=[];
-    for(let i=1;i<uniq.length;i++) segs.push({a:uniq[i-1],b:uniq[i],len:uniq[i]-uniq[i-1]});
+    for(let i=1;i<uniq.length;i++)
+      segs.push({a:uniq[i-1].t,b:uniq[i].t,len:uniq[i].t-uniq[i-1].t,cA:uniq[i-1].c,cB:uniq[i].c});
     out.push({axis:"XYZ"[ai],ai,levels:uniq,segs});
   }
   return out;
@@ -1351,20 +1353,34 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
   const levelPt=(ai,t)=>{const p=[ctr[0],ctr[1],ctr[2]];p[ai]=t;return proj(p);};
 
   if(chainV){
-    const baseX=Math.max(x0-26,P.x+16);
-    let prevMid=null, stagger=0;
+    const baseXL=Math.max(x0-26,P.x+16), baseXR=Math.min(x1+26,P.x+P.w-16);
+    const midX=(x0+x1)/2, spread=(x1-x0)*0.12;
+    let prevMidL=null, staggerL=0, prevMidR=null, staggerR=0;
     for(const sg of chainV.segs){
       const ya=levelPt(vAx,sg.a)[1], yb=levelPt(vAx,sg.b)[1];
       if(Math.abs(ya-yb)<9) continue;
-      const mid=(ya+yb)/2;
-      // consecutive short segments can put their labels close enough to collide -
-      // step the dimension line outward until there's clear air between them
-      stagger=(prevMid!==null&&Math.abs(mid-prevMid)<13)?stagger+1:0;
-      const dimX=baseX-stagger*15;
+      const midY=(ya+yb)/2;
+      // stacking every height on the left regardless of geometry made witness lines
+      // cross the whole part for a step that's really only on the right side - send
+      // it to whichever margin its own boundary actually sits toward instead
+      const pts=[sg.cA,sg.cB].filter(Boolean).map(c=>proj(c)[0]);
+      const avgX=pts.length?pts.reduce((s,v)=>s+v,0)/pts.length:midX;
+      const right=avgX>midX+spread;
+      let dimX;
+      if(right){
+        staggerR=(prevMidR!==null&&Math.abs(midY-prevMidR)<13)?staggerR+1:0;
+        dimX=baseXR+staggerR*15;
+        prevMidR=midY;
+      } else {
+        // consecutive short segments can put their labels close enough to collide -
+        // step the dimension line outward until there's clear air between them
+        staggerL=(prevMidL!==null&&Math.abs(midY-prevMidL)<13)?staggerL+1:0;
+        dimX=baseXL-staggerL*15;
+        prevMidL=midY;
+      }
       reg(sg,[[dimX,ya,dimX,yb]]);
-      if(visible(sg)) dimV(g,ya,yb,x0,dimX,S.fmt(sg.len),S.hiStep===sg||isHover(sg));
+      if(visible(sg)) dimV(g,ya,yb,right?x1:x0,dimX,S.fmt(sg.len),S.hiStep===sg||isHover(sg));
       if(isHover(sg)){ hoverGuideH(ya); hoverGuideH(yb); }
-      prevMid=mid;
     }
   }
   if(chainH&&!isSec){
