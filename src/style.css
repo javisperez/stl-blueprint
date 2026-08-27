@@ -63,6 +63,15 @@ canvas{width:100%;display:block;border-radius:3px;touch-action:none;
 .pane-select:hover{background:rgba(234,241,251,.12)}
 .pane-select:focus-visible{outline:1.5px solid #8FC1FF;outline-offset:1px}
 
+.dim-toggle{position:absolute;z-index:2;top:8px;right:8px;
+  display:inline-flex;align-items:center;gap:5px;
+  background:rgba(19,40,75,.82);border:1px solid rgba(234,241,251,.25);border-radius:3px;
+  padding:5px 9px;font:600 10.5px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  letter-spacing:.03em;text-transform:uppercase;color:#EAF1FB;cursor:pointer}
+.dim-toggle:hover{background:rgba(30,50,90,.9);border-color:rgba(234,241,251,.4)}
+.dim-toggle.off{color:var(--dim);border-color:var(--line)}
+.dim-toggle .ico{width:13px;height:13px}
+
 .cols{display:grid;grid-template-columns:1.25fr 1fr;gap:18px;margin-top:22px}
 @media(max-width:640px){.cols{grid-template-columns:1fr}}
 .stack{display:flex;flex-direction:column;gap:18px}

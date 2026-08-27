@@ -1,14 +1,20 @@
 <script setup lang="ts">
 import { onMounted, ref, nextTick, watch } from 'vue'
-import { initApp, draw, setSingleView } from './engine/blueprint'
+import { initApp, draw, setSingleView, toggleDimensions } from './engine/blueprint'
 import IconUpload from '~icons/tabler/upload'
 import IconCube from '~icons/tabler/cube'
 import IconRuler from '~icons/tabler/ruler-2'
+import IconRulerOff from '~icons/tabler/ruler-2-off'
 import IconDownload from '~icons/tabler/download'
 import IconEye from '~icons/tabler/eye'
 import IconSettings from '~icons/tabler/settings'
 
 const activeTab = ref<'viewer' | 'measurements' | 'export' | 'settings'>('viewer')
+const dimsOn = ref(true)
+
+function toggleDims() {
+  dimsOn.value = toggleDimensions()
+}
 
 // on mobile the sheet shows one view at a time (four panes at once is unreadable);
 // on desktop the engine always draws the full 4-up sheet regardless of this value
@@ -88,6 +94,9 @@ onMounted(() => {
           </div>
           <div class="sheet-wrap">
             <canvas id="sheet"></canvas>
+            <button type="button" class="dim-toggle" :class="{ off: !dimsOn }" @click="toggleDims" :title="dimsOn ? 'Hide dimension lines' : 'Show dimension lines'">
+              <IconRuler v-if="dimsOn" class="ico" /><IconRulerOff v-else class="ico" />{{ dimsOn ? 'Dims' : 'Dims off' }}
+            </button>
             <select id="topSel" class="pane-select"><option value="top" selected>Top</option><option value="bottom">Bottom</option></select>
             <select id="elevSel" class="pane-select"><option value="front" selected>Front</option><option value="right">Right</option></select>
             <select id="fourthSel" class="pane-select"><option value="section">Section A-A</option><option value="other" id="otherOpt">Right view</option></select>

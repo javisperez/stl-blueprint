@@ -967,6 +967,7 @@ function drawSheet(cv,M,A,S){
   g.setTransform(dpr,0,0,dpr,0,0);
   SHEETINFO.pane=L.panes[1]; SHEETINFO.scale=L.scale; SHEETINFO.ctr=L.ctr;
   SHEETINFO.gridX=L.gridX; SHEETINFO.gridY=L.gridY; SHEETINFO.single=false;
+  if(!S.forExport) DIMHIT.length=0;
   paintSheet(g,L,M,A,S);
   positionPaneSelects(L);
 }
@@ -1032,6 +1033,7 @@ function drawSheetSingle(cv,M,A,S,idx){
   if(idx===1){ SHEETINFO.pane=L.panes[0]; SHEETINFO.scale=L.scale; SHEETINFO.ctr=L.ctr; }
   else SHEETINFO.pane=null;
   SHEETINFO.single=true;
+  if(!S.forExport) DIMHIT.length=0;
   paintSheetSingle(g,L,M,A,S);
   positionPaneSelectsSingle(L,idx);
 }
@@ -1282,8 +1284,46 @@ function dimAngle(g,x,y,dx,dy,txt,on){
 }
 function axisOf(v){ for(let i=0;i<3;i++) if(Math.abs(v[i])>0.98) return i; return -1; }
 
+/* ---------- dimension line hover/visibility ----------
+   Lines are hit-tested by identity of the object they measure (a step segment,
+   a fitted feature, an angle...) so the highlight survives the next repaint -
+   the same trick the measurements-table hover already relies on (S.hi/S.hiStep). */
+let DIMS_ON=true, HOVERDIM=null;
+const DIMHIT=[];
+function distToSegSq(px,py,x1,y1,x2,y2){
+  const dx=x2-x1,dy=y2-y1,L2=dx*dx+dy*dy;
+  let t=L2?((px-x1)*dx+(py-y1)*dy)/L2:0;
+  t=Math.max(0,Math.min(1,t));
+  const cx=x1+t*dx,cy=y1+t*dy;
+  return (px-cx)*(px-cx)+(py-cy)*(py-cy);
+}
+function hitTestDim(x,y){
+  const THRESH=64; // 8px
+  let best=null,bestD=THRESH;
+  for(const it of DIMHIT) for(const s of it.segs){
+    const d=distToSegSq(x,y,s[0],s[1],s[2],s[3]);
+    if(d<bestD){ bestD=d; best=it.obj; }
+  }
+  return best;
+}
+function angleLegSegs(x,y,dx,dy){
+  const R=25*1.45;
+  const L=Math.hypot(dx,dy)||1; dx/=L; dy/=L;
+  let a1=Math.atan2(dy,dx);
+  const a0=Math.cos(a1)>=0?0:Math.PI;
+  let d=a1-a0; while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI;
+  a1=a0+d;
+  return [[x,y,x+Math.cos(a0)*R,y+Math.sin(a0)*R],[x,y,x+Math.cos(a1)*R,y+Math.sin(a1)*R]];
+}
+
 /* ---------- annotations ---------- */
 function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
+  if(!S.forExport&&!DIMS_ON) return;
+  const hover=S.forExport?null:HOVERDIM;
+  const visible=obj=>!hover||hover===obj;
+  const isHover=obj=>hover===obj;
+  const reg=(obj,segs)=>{ if(!S.forExport) DIMHIT.push({obj,pane:P,segs}); };
+
   let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
   for(let i=0;i<8;i++){
     const p=proj([i&1?M.mx[0]:M.mn[0],i&2?M.mx[1]:M.mn[1],i&4?M.mx[2]:M.mn[2]]);
@@ -1303,7 +1343,9 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
       // consecutive short segments can put their labels close enough to collide -
       // step the dimension line outward until there's clear air between them
       stagger=(prevMid!==null&&Math.abs(mid-prevMid)<13)?stagger+1:0;
-      dimV(g,ya,yb,x0,baseX-stagger*15,S.fmt(sg.len),S.hiStep===sg);
+      const dimX=baseX-stagger*15;
+      reg(sg,[[dimX,ya,dimX,yb]]);
+      if(visible(sg)) dimV(g,ya,yb,x0,dimX,S.fmt(sg.len),S.hiStep===sg||isHover(sg));
       prevMid=mid;
     }
   }
@@ -1315,11 +1357,17 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
       if(Math.abs(xa-xb)<26) continue;
       const mid=(xa+xb)/2;
       stagger=(prevMid!==null&&Math.abs(mid-prevMid)<30)?stagger+1:0;
-      dimH(g,xa,xb,y1,Math.min(baseY+stagger*15,P.y+P.h-16),S.fmt(sg.len),S.hiStep===sg);
+      const dimY=Math.min(baseY+stagger*15,P.y+P.h-16);
+      reg(sg,[[xa,dimY,xb,dimY]]);
+      if(visible(sg)) dimH(g,xa,xb,y1,dimY,S.fmt(sg.len),S.hiStep===sg||isHover(sg));
       prevMid=mid;
     }
   }
-  dimV(g,y0,y1,x0,Math.max(x0-(chainV?54:26),P.x+12),S.fmt((y1-y0)/scale));
+  {
+    const dimX=Math.max(x0-(chainV?54:26),P.x+12), kOV=V.name+"|overallV";
+    reg(kOV,[[dimX,y0,dimX,y1]]);
+    if(visible(kOV)) dimV(g,y0,y1,x0,dimX,S.fmt((y1-y0)/scale),isHover(kOV));
+  }
 
   const axial=[],lateral=[];
   for(const f of A.feats){
@@ -1335,19 +1383,25 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
     for(const c of lateral.slice(0,4)){
       const m=proj(c.mid), R=(c.kind==="cone"?Math.max(c.r0,c.r1):c.radius)*scale;
       const dy=Math.min(y1+24+k*19,P.y+P.h-14);
-      dimH(g,m[0]-R,m[0]+R,y1,dy,"\u00D8"+S.fmt(2*(c.kind==="cone"?Math.max(c.r0,c.r1):c.radius)),c===S.hi);
+      reg(c,[[m[0]-R,dy,m[0]+R,dy]]);
+      if(visible(c)) dimH(g,m[0]-R,m[0]+R,y1,dy,"\u00D8"+S.fmt(2*(c.kind==="cone"?Math.max(c.r0,c.r1):c.radius)),c===S.hi||isHover(c));
       k++;
     }
   } else {
-    dimH(g,x0,x1,y1,Math.min(y1+(chainH?54:26),P.y+P.h-12),S.fmt((x1-x0)/scale));
+    const dyOH=Math.min(y1+(chainH?54:26),P.y+P.h-12), kOH=V.name+"|overallH";
+    reg(kOH,[[x0,dyOH,x1,dyOH]]);
+    if(visible(kOH)) dimH(g,x0,x1,y1,dyOH,S.fmt((x1-x0)/scale),isHover(kOH));
     // bores seen from the side: dashed walls plus a centre line
     for(const c of lateral){
       if(!c.hole||c.kind!=="cyl") continue;
       const a=proj(c.p0),b=proj(c.p1);
       let dx=b[0]-a[0],dy=b[1]-a[1];const L=Math.hypot(dx,dy)||1;dx/=L;dy/=L;
       const px=-dy*c.radius*scale, py=dx*c.radius*scale;
+      reg(c,[[a[0]+px,a[1]+py,b[0]+px,b[1]+py],[a[0]-px,a[1]-py,b[0]-px,b[1]-py]]);
+      if(!visible(c)) continue;
+      const on=c===S.hi||isHover(c);
       g.save();
-      g.strokeStyle=c===S.hi?RED:HIDDEN; g.lineWidth=c===S.hi?1.3:.95; g.setLineDash([6,3.5]);
+      g.strokeStyle=on?RED:HIDDEN; g.lineWidth=on?1.3:.95; g.setLineDash([6,3.5]);
       g.beginPath();
       g.moveTo(a[0]+px,a[1]+py); g.lineTo(b[0]+px,b[1]+py);
       g.moveTo(a[0]-px,a[1]-py); g.lineTo(b[0]-px,b[1]-py);
@@ -1368,8 +1422,10 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
       const side=k%2?-1:1, t=[0.32,0.32,0.62][k];
       const px=-dy*rad*scale*side, py=dx*rad*scale*side;
       const ux=-dy*side, uy=dx*side;
-      leader(g,a[0]+(b[0]-a[0])*t+px,a[1]+(b[1]-a[1])*t+py,ux,uy,20,
-             "\u00D8"+S.fmt(2*rad),c===S.hi);
+      const ax=a[0]+(b[0]-a[0])*t+px, ay=a[1]+(b[1]-a[1])*t+py;
+      const lx=ax+ux*20, ly=ay+uy*20, dir=ux>=0?1:-1, tx=lx+dir*14;
+      reg(c,[[ax,ay,lx,ly],[lx,ly,tx,ly]]);
+      if(visible(c)) leader(g,ax,ay,ux,uy,20,"\u00D8"+S.fmt(2*rad),c===S.hi||isHover(c));
       k++;
     }
   }
@@ -1380,11 +1436,16 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
   for(const s of sphs.slice(0,isSec?2:1)){
     const m=proj(s.c), R=s.radius*scale;
     const th=[-2.3,-0.85][si%2];
-    g.save(); g.strokeStyle=CENTRE; g.lineWidth=.7; g.setLineDash([8,3,2.5,3]);
-    g.beginPath(); g.moveTo(m[0]-7,m[1]); g.lineTo(m[0]+7,m[1]);
-    g.moveTo(m[0],m[1]-7); g.lineTo(m[0],m[1]+7); g.stroke(); g.restore();
-    leader(g,m[0]+Math.cos(th)*R,m[1]+Math.sin(th)*R,Math.cos(th),Math.sin(th),18,
-           "SR"+S.fmt(s.radius),s===S.hi);
+    const ux=Math.cos(th), uy=Math.sin(th);
+    const ax=m[0]+ux*R, ay=m[1]+uy*R;
+    const lx=ax+ux*18, ly=ay+uy*18, dir=ux>=0?1:-1, tx=lx+dir*14;
+    reg(s,[[m[0]-7,m[1],m[0]+7,m[1]],[m[0],m[1]-7,m[0],m[1]+7],[ax,ay,lx,ly],[lx,ly,tx,ly]]);
+    if(visible(s)){
+      g.save(); g.strokeStyle=CENTRE; g.lineWidth=.7; g.setLineDash([8,3,2.5,3]);
+      g.beginPath(); g.moveTo(m[0]-7,m[1]); g.lineTo(m[0]+7,m[1]);
+      g.moveTo(m[0],m[1]-7); g.lineTo(m[0],m[1]+7); g.stroke(); g.restore();
+      leader(g,ax,ay,ux,uy,18,"SR"+S.fmt(s.radius),s===S.hi||isHover(s));
+    }
     si++;
   }
 
@@ -1396,14 +1457,18 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
     const nr=a.n[0]*V.r[0]+a.n[1]*V.r[1]+a.n[2]*V.r[2];
     const nu=a.n[0]*V.u[0]+a.n[1]*V.u[1]+a.n[2]*V.u[2];
     const c=proj(a.centroid);
-    dimAngle(g,c[0],c[1],-nu,nr,a.deg.toFixed(1)+"\u00B0",a===S.hi);
+    reg(a,angleLegSegs(c[0],c[1],-nu,nr));
+    if(visible(a)) dimAngle(g,c[0],c[1],-nu,nr,a.deg.toFixed(1)+"\u00B0",a===S.hi||isHover(a));
     na++;
   }
   for(const f of A.feats){
     if(f.kind!=="cone") continue;
     if(Math.abs(f.axis[0]*V.f[0]+f.axis[1]*V.f[1]+f.axis[2]*V.f[2])>0.15) continue;
     const m=proj(f.mid);
-    leader(g,m[0],m[1],1,-0.6,26,(2*f.half*180/Math.PI).toFixed(1)+"\u00B0 incl",f===S.hi);
+    const ux=1,uy=-0.6;
+    const lx=m[0]+ux*26, ly=m[1]+uy*26, dir=ux>=0?1:-1, tx=lx+dir*14;
+    reg(f,[[m[0],m[1],lx,ly],[lx,ly,tx,ly]]);
+    if(visible(f)) leader(g,m[0],m[1],1,-0.6,26,(2*f.half*180/Math.PI).toFixed(1)+"\u00B0 incl",f===S.hi||isHover(f));
     break;
   }
 
@@ -1414,16 +1479,22 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
   for(const c of axial.slice(0,6)){
     if(c.kind!=="cyl") continue;
     const m=proj(c.mid), R=c.radius*scale;
+    const th=angles[j++%angles.length];
+    const ux=Math.cos(th), uy=Math.sin(th);
+    const ax=m[0]+ux*R, ay=m[1]+uy*R;
+    const lx=ax+ux*17, ly=ay+uy*17, dir=ux>=0?1:-1, tx=lx+dir*14;
+    reg(c,[[m[0]-R-5,m[1],m[0]+R+5,m[1]],[m[0],m[1]-R-5,m[0],m[1]+R+5],[ax,ay,lx,ly],[lx,ly,tx,ly]]);
+    if(!visible(c)) continue;
+    const on=c===S.hi||isHover(c);
     g.save(); g.strokeStyle=CENTRE; g.lineWidth=.7; g.setLineDash([8,3,2.5,3]);
     g.beginPath();
     g.moveTo(m[0]-R-5,m[1]); g.lineTo(m[0]+R+5,m[1]);
     g.moveTo(m[0],m[1]-R-5); g.lineTo(m[0],m[1]+R+5);
     g.stroke(); g.restore();
-    if(c===S.hi){ g.save(); g.strokeStyle=RED; g.lineWidth=1.8;
+    if(on){ g.save(); g.strokeStyle=RED; g.lineWidth=1.8;
       g.beginPath(); g.arc(m[0],m[1],R,0,7); g.stroke(); g.restore(); }
-    const th=angles[j++%angles.length];
-    leader(g,m[0]+Math.cos(th)*R,m[1]+Math.sin(th)*R,Math.cos(th),Math.sin(th),17,
-           "\u00D8"+S.fmt(c.radius*2)+(c.through?" THRU":(c.hole?" \u2193"+S.fmt(c.len):"")),c===S.hi);
+    leader(g,ax,ay,ux,uy,17,
+           "\u00D8"+S.fmt(c.radius*2)+(c.through?" THRU":(c.hole?" \u2193"+S.fmt(c.len):"")),on);
   }
 }
 
@@ -2420,6 +2491,14 @@ export function draw(){
   const bg=BG.getContext("2d");
   bg.setTransform(1,0,0,1,0,0); bg.clearRect(0,0,BG.width,BG.height); bg.drawImage(cv,0,0);
 }
+export function dimensionsVisible(){ return DIMS_ON; }
+// called from the host app's "hide dimensions" toggle
+export function toggleDimensions(){
+  DIMS_ON=!DIMS_ON;
+  if(!DIMS_ON) HOVERDIM=null;
+  draw();
+  return DIMS_ON;
+}
 // called from the host app to switch between the full 4-up sheet (null) and
 // a single pane shown full-size (0=plan,1=iso,2=elevation,3=section/4th)
 export function setSingleView(idx){
@@ -2646,12 +2725,30 @@ export function initApp(){
     e.preventDefault();
   });
   cv.addEventListener("pointermove",e=>{
-    if(!DRAG){ cv.style.cursor=inIso(cv,e)?"grab":"default"; return; }
+    if(!DRAG){
+      if(inIso(cv,e)){
+        cv.style.cursor="grab";
+        if(HOVERDIM){ HOVERDIM=null; draw(); }
+        return;
+      }
+      if(DIMS_ON&&MESH&&A){
+        const r=cv.getBoundingClientRect();
+        const hit=hitTestDim(e.clientX-r.left,e.clientY-r.top);
+        cv.style.cursor=hit?"pointer":"default";
+        if(hit!==HOVERDIM){ HOVERDIM=hit; if(!RAF) RAF=requestAnimationFrame(()=>{ RAF=0; draw(); }); }
+      } else {
+        cv.style.cursor="default";
+      }
+      return;
+    }
     ISO.az-=(e.clientX-DRAG.x)*0.011;
     ISO.el=Math.max(-1.45,Math.min(1.45,ISO.el+(e.clientY-DRAG.y)*0.011));
     DRAG={x:e.clientX,y:e.clientY};
     // outlines cost only a few percent here, so keep them unless the mesh is huge
     if(!RAF) RAF=requestAnimationFrame(()=>{ RAF=0; drawIso(MESH.nf>40000); });
+  });
+  cv.addEventListener("pointerleave",()=>{
+    if(HOVERDIM){ HOVERDIM=null; draw(); }
   });
   const stop=e=>{
     if(!DRAG) return;
