@@ -1356,12 +1356,32 @@ function hitTestEdge(mx,my){
   }
   return best?{u1:best.u1,v1:best.v1,u2:best.u2,v2:best.v2,pane,scale,viewIdx}:null;
 }
-// the point a click/hover should use: snapped to the nearest point on a hovered
-// edge if one is close enough, otherwise the raw cursor position - same rule a
-// physical ruler follows when you line it up against a part's edge by eye
+// corners are what a manufacturing measurement almost always actually wants -
+// snap to the nearest edge ENDPOINT first, a tighter radius than the edge snap
+// below so a corner always wins over the edge that happens to pass through it
+function hitTestVertex(mx,my){
+  const hit=paneAt(mx,my);
+  if(!hit||hit.viewIdx===1) return null;
+  const {viewIdx,pane}=hit, cx=pane.x+pane.w/2, cy=pane.y+pane.h/2, scale=SHEETINFO.scale;
+  const THRESH=100; // 10px
+  let bestD=THRESH,u=0,v=0,found=false;
+  for(const e of EDGEHIT){
+    if(e.viewIdx!==viewIdx) continue;
+    for(const p of [[e.u1,e.v1],[e.u2,e.v2]]){
+      const dx=mx-(cx+p[0]*scale), dy=my-(cy+p[1]*scale), d=dx*dx+dy*dy;
+      if(d<bestD){ bestD=d; u=p[0]; v=p[1]; found=true; }
+    }
+  }
+  return found?{viewIdx,u,v}:null;
+}
+// the point a click/hover should use: a nearby vertex first (exact, no
+// eyeballing needed for corner-to-corner sizes that matter for fit/tolerance),
+// then the nearest point on a hovered edge, otherwise the raw cursor position
 function rulerPointAt(mx,my){
   const hit=paneAt(mx,my);
   if(!hit||hit.viewIdx===1) return null;
+  const vtx=hitTestVertex(mx,my);
+  if(vtx) return vtx;
   const {viewIdx,pane}=hit, cx=pane.x+pane.w/2, cy=pane.y+pane.h/2, scale=SHEETINFO.scale;
   const edge=hitTestEdge(mx,my);
   if(edge){
@@ -1386,13 +1406,23 @@ function rulerLine(g,x1,y1,x2,y2,txt,live){
   g.restore();
   if(txt) dimText(g,(x1+x2)/2+px*11,(y1+y2)/2+py*11,txt,RULER_COL);
 }
+// marks the exact point a click will land on - the only way to trust a
+// corner-to-corner size is to see the corner get caught before you click it
+function rulerDot(g,x,y){
+  g.save();
+  g.fillStyle=RULER_COL; g.beginPath(); g.arc(x,y,3,0,Math.PI*2); g.fill();
+  g.strokeStyle=SHEET; g.lineWidth=1; g.stroke();
+  g.restore();
+}
 // finished measurements are baked into the normal draw pass (like the auto
 // dimensions) so they survive any full redraw, not just the live overlay
 function drawRulers(g,cx,cy,scale,viewIdx,S){
   for(const r of RULERS){
     if(r.viewIdx!==viewIdx) continue;
     const d=Math.hypot(r.u2-r.u1,r.v2-r.v1);
-    rulerLine(g,cx+r.u1*scale,cy+r.v1*scale,cx+r.u2*scale,cy+r.v2*scale,S.fmt(d),false);
+    const x1=cx+r.u1*scale, y1=cy+r.v1*scale, x2=cx+r.u2*scale, y2=cy+r.v2*scale;
+    rulerLine(g,x1,y1,x2,y2,S.fmt(d),false);
+    rulerDot(g,x1,y1); rulerDot(g,x2,y2);
   }
 }
 // the hovered-edge highlight and in-progress measurement need to track the
@@ -1417,6 +1447,16 @@ function drawRulerLive(){
       const cx=pane.x+pane.w/2, cy=pane.y+pane.h/2, sc=SHEETINFO.scale;
       const d=Math.hypot(RULER_LIVE.u-RULER_PEND.u,RULER_LIVE.v-RULER_PEND.v);
       rulerLine(g,cx+RULER_PEND.u*sc,cy+RULER_PEND.v*sc,cx+RULER_LIVE.u*sc,cy+RULER_LIVE.v*sc,S.fmt(d),true);
+      rulerDot(g,cx+RULER_PEND.u*sc,cy+RULER_PEND.v*sc);
+    }
+  }
+  // always show exactly where a click will land - this is what lets you trust
+  // a corner-to-corner measurement instead of eyeballing it
+  if(RULER_LIVE){
+    const pane=SHEETINFO.panes&&SHEETINFO.panes[RULER_LIVE.viewIdx];
+    if(pane){
+      const cx=pane.x+pane.w/2, cy=pane.y+pane.h/2, sc=SHEETINFO.scale;
+      rulerDot(g,cx+RULER_LIVE.u*sc,cy+RULER_LIVE.v*sc);
     }
   }
   g.restore();

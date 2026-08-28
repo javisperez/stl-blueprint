@@ -111,7 +111,7 @@ onMounted(() => {
       </div>
       <div class="group">
         <button type="button" class="icon-btn dim-toggle" :class="{ on: rulerOn }" @click="toggleRulerTool"
-          :title="rulerOn ? 'Click two points to measure · right-click to undo · click again to turn off' : 'Measure any distance: click two points in a view'">
+          :title="rulerOn ? 'Click two points to measure - snaps to corners for exact sizes · right-click to undo · click again to turn off' : 'Measure any distance: click two points - snaps to corners and edges for exact sizes'">
           <IconRulerMeasure class="ico" />{{ rulerOn ? 'Ruler on' : 'Ruler' }}
         </button>
         <button type="button" class="icon-btn dim-toggle" v-if="rulerOn" @click="clearRulers" title="Clear all measurements">
