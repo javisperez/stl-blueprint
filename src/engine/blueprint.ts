@@ -914,6 +914,7 @@ const SHEET="#13284B", PENCIL="#EAF1FB", BLUE="#8FC1FF", CENTRE="#5C7CA6", RED="
 const HATCH="#5E7FA8";
 const GRID="#4A6C96", DIM_TEXT="#9FB8D9", HINT_TEXT="#7E97BE", HIDDEN="#4A6688";
 const MONO='11px ui-monospace,"SF Mono",Menlo,Consolas,monospace';
+const MONO_SM='9px ui-monospace,"SF Mono",Menlo,Consolas,monospace';
 const SHEETINFO={pane:null,scale:1,ctr:[0,0,0],gridX:0,gridY:0,single:false,
                   panes:[null,null,null,null]};
 let SINGLE_VIEW=null; // null = full 4-up sheet; 0..3 = one pane shown full-size (mobile)
@@ -1173,7 +1174,7 @@ function drawView(g,P,V,M,A,scale,ctr,S,quick,hasSelect,viewIdx){
   g.__mark&&g.__mark("anno",V,P);
   g.save();
   g.beginPath(); g.rect(P.x,P.y,P.w,P.h); g.clip();
-  if(!iso&&!quick) annotate(g,P,V,M,A,scale,ctr,proj,S,isSec);
+  if(!iso&&!quick) annotate(g,P,V,M,A,scale,ctr,proj,S,isSec,viewIdx,keep);
   if(!iso&&RULER_ON) drawRulers(g,cx,cy,scale,viewIdx,S);
   g.restore();
 
@@ -1230,10 +1231,10 @@ function arrow(g,x,y,dx,dy){
   g.lineTo(x-dx*a+px*w,y-dy*a+py*w); g.lineTo(x-dx*a-px*w,y-dy*a-py*w);
   g.closePath(); g.fill();
 }
-function dimText(g,x,y,txt,col){
-  g.font=MONO; g.textAlign="center"; g.textBaseline="middle";
-  const w=g.measureText(txt).width;
-  g.fillStyle=SHEET; g.fillRect(x-w/2-2.5,y-6,w+5,12);
+function dimText(g,x,y,txt,col,small){
+  g.font=small?MONO_SM:MONO; g.textAlign="center"; g.textBaseline="middle";
+  const w=g.measureText(txt).width, h=small?9:12;
+  g.fillStyle=SHEET; g.fillRect(x-w/2-2,y-h/2,w+4,h);
   g.fillStyle=col||BLUE; g.fillText(txt,x,y+.5);
 }
 function dimH(g,x1,x2,objY,dimY,txt,on){
@@ -1335,6 +1336,60 @@ const RULERS=[];   // finished measurements: {viewIdx,u1,v1,u2,v2}
 const EDGEHIT=[];  // per-draw visible outline edges, in the same (viewIdx,u,v) space
 function resetRulers(){
   RULERS.length=0; RULER_PEND=null; RULER_HOVER=null; RULER_LIVE=null;
+}
+
+/* ---------- grouped step chains ----------
+   Three fine boundaries only read as three sizes if there are three actual corners
+   to tell them apart on the sheet. Half of them are usually just other features'
+   levels (a bore's end, buried inside the part) riding along the same axis with no
+   corner of their own in THIS view - group mode drops any boundary that isn't
+   backed by a corner someone looking at the drawing could actually see, so what's
+   left matches what the eye does: one line, one size.
+   A silhouette test alone isn't enough - a bore's own wall has a silhouette (the
+   two sides of its cylinder) even while the whole bore sits behind solid material
+   and would never be inked as a real line. Telling those apart needs the same
+   depth-tested hidden-line removal the vector exports already do, which is too
+   heavy to redo on every redraw, so the result is cached per named view direction
+   and only thrown away when a new part loads. */
+let GROUP_ON=false;
+const GROUP_VIS_CACHE=new Map();
+function computeVisibleLevels(M,V,ctr,scale,P,keep){
+  const bias=M.diag*0.0035;
+  const segs=visibleSegments(M,V,scale,ctr,P,keep,bias);
+  const cx=P.x+P.w/2, cy=P.y+P.h/2;
+  const hAx=axisOf(V.r), vAx=axisOf(V.u);
+  const signH=Math.sign(V.r[hAx])||1, signV=Math.sign(V.u[vAx])||1;
+  const hLevels=[], vLevels=[];
+  for(const s of segs) for(const p of s){
+    hLevels.push(ctr[hAx]+((p[0]-cx)/scale)*signH);
+    vLevels.push(ctr[vAx]+((p[1]-cy)/scale)*signV);
+  }
+  return {hLevels,vLevels};
+}
+function groupLevelsFor(M,V,ctr,scale,P,keep){
+  const key=V.name+"|"+V.f.join(",");
+  let hit=GROUP_VIS_CACHE.get(key);
+  if(!hit){ hit=computeVisibleLevels(M,V,ctr,scale,P,keep); GROUP_VIS_CACHE.set(key,hit); }
+  return hit;
+}
+function groupedChainSegs(chain,levels,tol){
+  const lv=chain.levels;
+  const keep=[lv[0]];
+  for(let i=1;i<lv.length-1;i++){
+    const t=lv[i].t;
+    let hit=false;
+    for(const v of levels) if(Math.abs(v-t)<=tol){ hit=true; break; }
+    if(hit) keep.push(lv[i]);
+  }
+  keep.push(lv[lv.length-1]);
+  // even when nothing internal survives, still show the one merged size in place of
+  // the ones that just disappeared - the separate overall dimension elsewhere on the
+  // sheet is easy to miss and isn't a substitute for the sum landing where you were
+  // actually looking
+  const segs=[];
+  for(let i=1;i<keep.length;i++)
+    segs.push({a:keep[i-1].t,b:keep[i].t,len:keep[i].t-keep[i-1].t,cA:keep[i-1].c,cB:keep[i].c});
+  return segs;
 }
 function paneAt(mx,my){
   for(let k=0;k<4;k++){
@@ -1472,7 +1527,7 @@ function angleLegSegs(x,y,dx,dy){
 }
 
 /* ---------- annotations ---------- */
-function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
+function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec,viewIdx,keep){
   if(!S.forExport&&!DIMS_ON) return;
   const hover=S.forExport?null:HOVERDIM;
   const visible=obj=>!hover||hover===obj;
@@ -1489,29 +1544,32 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
     g.save(); g.strokeStyle=RED; g.lineWidth=1; g.setLineDash([7,4]); g.globalAlpha=.55;
     g.beginPath(); g.moveTo(x,P.y+2); g.lineTo(x,P.y+P.h-2); g.stroke(); g.restore();
   };
-  // a step chain packed tight enough to need staggering reads as a wall of numbers -
-  // draw the crowded ones as a bare tick (no arrows, no label) until hovered, so the
-  // default view stays quiet and the full callout still shows up on demand
-  const ghostTickV=(y1,y2,objX,dimX)=>{
-    g.save(); g.strokeStyle=DIM_TEXT; g.globalAlpha=.4; g.lineWidth=.75;
+  // a step chain packed tight enough to need staggering reads as a wall of numbers if
+  // every entry gets the full arrowed treatment - crowded ones fall back to a plain
+  // tick instead, but the number itself is never optional: a size you can only see by
+  // guessing where to hover is a size someone will silently drop from a total
+  const ghostTickV=(y1,y2,objX,dimX,txt)=>{
+    g.save(); g.strokeStyle=DIM_TEXT; g.globalAlpha=.55; g.lineWidth=.75;
     const s=Math.sign(dimX-objX)||1;
     g.beginPath();
     g.moveTo(objX+s*2.5,y1); g.lineTo(dimX+s*3.5,y1);
     g.moveTo(objX+s*2.5,y2); g.lineTo(dimX+s*3.5,y2);
     g.moveTo(dimX,y1); g.lineTo(dimX,y2);
     g.stroke(); g.restore();
+    g.save(); g.translate(dimX,(y1+y2)/2); g.rotate(-Math.PI/2);
+    dimText(g,0,0,txt,DIM_TEXT,true); g.restore();
   };
-  const ghostTickH=(xa,xb,objY,dimY)=>{
+  const ghostTickH=(xa,xb,objY,dimY,txt)=>{
     if(xb<xa)[xa,xb]=[xb,xa];
-    g.save(); g.strokeStyle=DIM_TEXT; g.globalAlpha=.4; g.lineWidth=.75;
+    g.save(); g.strokeStyle=DIM_TEXT; g.globalAlpha=.55; g.lineWidth=.75;
     const s=Math.sign(dimY-objY)||1;
     g.beginPath();
     g.moveTo(xa,objY+s*2.5); g.lineTo(xa,dimY+s*3.5);
     g.moveTo(xb,objY+s*2.5); g.lineTo(xb,dimY+s*3.5);
     g.moveTo(xa,dimY); g.lineTo(xb,dimY);
     g.stroke(); g.restore();
+    dimText(g,(xa+xb)/2,dimY,txt,DIM_TEXT,true);
   };
-  let ghostCount=0;
 
   let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
   for(let i=0;i<8;i++){
@@ -1520,6 +1578,13 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
   }
   const hAx=axisOf(V.r), vAx=axisOf(V.u);
   const chainV=A.steps.find(s=>s.ai===vAx), chainH=A.steps.find(s=>s.ai===hAx);
+  const GROUP=GROUP_ON&&!S.forExport&&(chainV||chainH);
+  let chainVSegs=chainV?chainV.segs:[], chainHSegs=chainH?chainH.segs:[];
+  if(GROUP){
+    const {hLevels,vLevels}=groupLevelsFor(M,V,ctr,scale,P,keep);
+    if(chainV) chainVSegs=groupedChainSegs(chainV,vLevels,Math.max(M.diag*3e-4,(M.mx[vAx]-M.mn[vAx])*0.008));
+    if(chainH) chainHSegs=groupedChainSegs(chainH,hLevels,Math.max(M.diag*3e-4,(M.mx[hAx]-M.mn[hAx])*0.008));
+  }
   const levelPt=(ai,t)=>{const p=[ctr[0],ctr[1],ctr[2]];p[ai]=t;return proj(p);};
 
   const axial=[],lateral=[];
@@ -1655,47 +1720,50 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
   // happens to land in the same corner, instead of getting silently painted over
   if(chainV){
     const baseXL=Math.max(x0-26,P.x+16), baseXR=Math.min(x1+26,P.x+P.w-16);
-    const midX=(x0+x1)/2, spread=(x1-x0)*0.12;
-    let prevMidL=null, staggerL=0, prevMidR=null, staggerR=0;
-    for(const sg of chainV.segs){
+    const midX=(x0+x1)/2;
+    // one axis is one continuous size chain, so it goes on ONE side, together - each
+    // step used to pick its own margin from whichever unrelated feature happened to
+    // define its boundary (a bore's end, a chamfer's start...), which could tear a
+    // step away from the very neighbours it needs to be read next to: a "3" and an
+    // "8" on the right while the "1" that also belongs to that same wall got sent
+    // left because its own boundary came from an internal hole nowhere near it. A
+    // witness line reaching across the part is a smaller cost than a size that's
+    // only findable by already knowing to look on the opposite margin.
+    let sumX=0,sumW=0;
+    for(const sg of chainVSegs){
+      const pts=[sg.cA,sg.cB].filter(Boolean).map(c=>proj(c)[0]);
+      if(!pts.length) continue;
+      const w=Math.max(1,sg.len);
+      sumX+=(pts.reduce((s,v)=>s+v,0)/pts.length)*w; sumW+=w;
+    }
+    const right=sumW>0&&(sumX/sumW)>midX;
+    let prevMid=null, stagger=0;
+    for(const sg of chainVSegs){
       const ya=levelPt(vAx,sg.a)[1], yb=levelPt(vAx,sg.b)[1];
       if(Math.abs(ya-yb)<6) continue;
       const midY=(ya+yb)/2;
-      // stacking every height on the left regardless of geometry made witness lines
-      // cross the whole part for a step that's really only on the right side - send
-      // it to whichever margin its own boundary actually sits toward instead
-      const pts=[sg.cA,sg.cB].filter(Boolean).map(c=>proj(c)[0]);
-      const avgX=pts.length?pts.reduce((s,v)=>s+v,0)/pts.length:midX;
-      const right=avgX>midX+spread;
-      let dimX;
-      if(right){
-        staggerR=(prevMidR!==null&&Math.abs(midY-prevMidR)<13)?staggerR+1:0;
-        dimX=baseXR+staggerR*15;
-        prevMidR=midY;
-      } else {
-        // consecutive short segments can put their labels close enough to collide -
-        // step the dimension line outward until there's clear air between them
-        staggerL=(prevMidL!==null&&Math.abs(midY-prevMidL)<13)?staggerL+1:0;
-        dimX=baseXL-staggerL*15;
-        prevMidL=midY;
-      }
+      // consecutive short segments can put their labels close enough to collide -
+      // step the dimension line outward until there's clear air between them
+      stagger=(prevMid!==null&&Math.abs(midY-prevMid)<13)?stagger+1:0;
+      const dimX=right?baseXR+stagger*15:baseXL-stagger*15;
+      prevMid=midY;
       reg(sg,[[dimX,ya,dimX,yb]]);
-      // primary = didn't need to stagger away from a same-side neighbour, i.e. it
-      // isn't part of a crowded run - those default to a ghost tick instead
-      const primary=(right?staggerR:staggerL)===0;
+      // primary = didn't need to stagger away from a neighbour, i.e. it isn't part
+      // of a crowded run - those default to a ghost tick instead
+      const primary=stagger===0;
       let mode;
       if(S.forExport) mode="full";
       else if(hover) mode=isHover(sg)?"full":"none";
       else mode=primary?"full":"ghost";
       if(mode==="full") dimV(g,ya,yb,right?x1:x0,dimX,S.fmt(sg.len),S.hiStep===sg||isHover(sg));
-      else if(mode==="ghost"){ ghostTickV(ya,yb,right?x1:x0,dimX); ghostCount++; }
+      else if(mode==="ghost") ghostTickV(ya,yb,right?x1:x0,dimX,S.fmt(sg.len));
       if(isHover(sg)){ hoverGuideH(ya); hoverGuideH(yb); }
     }
   }
   if(chainH&&!isSec){
     const baseY=Math.min(y1+26,P.y+P.h-16);
     let prevMid=null, stagger=0;
-    for(const sg of chainH.segs){
+    for(const sg of chainHSegs){
       const xa=levelPt(hAx,sg.a)[0], xb=levelPt(hAx,sg.b)[0];
       if(Math.abs(xa-xb)<26) continue;
       const mid=(xa+xb)/2;
@@ -1708,7 +1776,7 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
       else if(hover) mode=isHover(sg)?"full":"none";
       else mode=primary?"full":"ghost";
       if(mode==="full") dimH(g,xa,xb,y1,dimY,S.fmt(sg.len),S.hiStep===sg||isHover(sg));
-      else if(mode==="ghost"){ ghostTickH(xa,xb,y1,dimY); ghostCount++; }
+      else if(mode==="ghost") ghostTickH(xa,xb,y1,dimY,S.fmt(sg.len));
       if(isHover(sg)){ hoverGuideV(xa); hoverGuideV(xb); }
       prevMid=mid;
     }
@@ -1718,11 +1786,6 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec){
     reg(kOV,[[dimX,y0,dimX,y1]]);
     if(visible(kOV)) dimV(g,y0,y1,x0,dimX,S.fmt((y1-y0)/scale),isHover(kOV));
     if(isHover(kOV)){ hoverGuideH(y0); hoverGuideH(y1); }
-  }
-  if(ghostCount&&!S.forExport&&!hover){
-    g.font=MONO; g.fillStyle=HINT_TEXT; g.textAlign="right"; g.textBaseline="bottom";
-    g.fillText("+"+ghostCount+" · hover to reveal",P.x+P.w-4,P.y+P.h-4);
-    g.textAlign="left";
   }
 }
 
@@ -2739,6 +2802,13 @@ export function clearRulers(){
   resetRulers();
   draw();
 }
+export function groupStepsActive(){ return GROUP_ON; }
+// called from the host app's "group steps" toggle
+export function toggleGroupSteps(){
+  GROUP_ON=!GROUP_ON;
+  draw();
+  return GROUP_ON;
+}
 // called from the host app to switch between the full 4-up sheet (null) and
 // a single pane shown full-size (0=plan,1=iso,2=elevation,3=section/4th)
 export function setSingleView(idx){
@@ -2893,7 +2963,7 @@ function load(tris,name){
     try{
       MESH=buildMesh(tris);
       if(!MESH||!MESH.nf){ status("no triangles in that file"); return; }
-      NAME=name; HI=null; HISTEP=null; resetRulers();
+      NAME=name; HI=null; HISTEP=null; resetRulers(); GROUP_VIS_CACHE.clear();
       const fn=document.getElementById("fileName"); if(fn) fn.textContent=name;
       const t0=performance.now();
       A=analyse(MESH);

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref, nextTick, watch } from 'vue'
-import { initApp, draw, setSingleView, toggleDimensions, toggleRuler, clearRulers, runExport, loadSamplePart, openStlFile } from './engine/blueprint'
+import { initApp, draw, setSingleView, toggleDimensions, toggleRuler, clearRulers, runExport, loadSamplePart, openStlFile, toggleGroupSteps } from './engine/blueprint'
 import IconUpload from '~icons/tabler/upload'
 import IconCube from '~icons/tabler/cube'
 import IconRuler from '~icons/tabler/ruler-2'
 import IconRulerOff from '~icons/tabler/ruler-2-off'
 import IconRulerMeasure from '~icons/tabler/ruler-measure'
+import IconSum from '~icons/tabler/sum'
 import IconDownload from '~icons/tabler/download'
 import IconChevronDown from '~icons/tabler/chevron-down'
 import IconEye from '~icons/tabler/eye'
@@ -14,6 +15,7 @@ import IconSettings from '~icons/tabler/settings'
 const activeTab = ref<'viewer' | 'measurements' | 'export' | 'settings'>('viewer')
 const dimsOn = ref(true)
 const rulerOn = ref(false)
+const groupOn = ref(false)
 const openMenu = ref<'file' | 'export' | null>(null)
 
 function toggleDims() {
@@ -22,6 +24,10 @@ function toggleDims() {
 
 function toggleRulerTool() {
   rulerOn.value = toggleRuler()
+}
+
+function toggleGroup() {
+  groupOn.value = toggleGroupSteps()
 }
 
 function toggleMenu(name: 'file' | 'export') {
@@ -119,6 +125,10 @@ onMounted(() => {
         </button>
         <button type="button" class="icon-btn dim-toggle" :class="{ off: !dimsOn }" @click="toggleDims" :title="dimsOn ? 'Hide dimension lines' : 'Show dimension lines'">
           <IconRuler v-if="dimsOn" class="ico" /><IconRulerOff v-else class="ico" />{{ dimsOn ? 'Dims' : 'Dims off' }}
+        </button>
+        <button type="button" class="icon-btn dim-toggle" :class="{ on: groupOn }" @click="toggleGroup"
+          :title="groupOn ? 'Showing one size per visible line - click to show every underlying step again' : 'Group steps that form one visible line into a single size'">
+          <IconSum class="ico" />{{ groupOn ? 'Grouped' : 'Group' }}
         </button>
       </div>
       <div id="settingsSection" class="tab-section toolbar-section" :class="{ active: activeTab === 'settings' }">
