@@ -914,7 +914,8 @@ const SHEET="#13284B", PENCIL="#EAF1FB", BLUE="#8FC1FF", CENTRE="#5C7CA6", RED="
 const HATCH="#5E7FA8";
 const GRID="#4A6C96", DIM_TEXT="#9FB8D9", HINT_TEXT="#7E97BE", HIDDEN="#4A6688";
 const MONO='11px ui-monospace,"SF Mono",Menlo,Consolas,monospace';
-const SHEETINFO={pane:null,scale:1,ctr:[0,0,0],gridX:0,gridY:0,single:false};
+const SHEETINFO={pane:null,scale:1,ctr:[0,0,0],gridX:0,gridY:0,single:false,
+                  panes:[null,null,null,null]};
 let SINGLE_VIEW=null; // null = full 4-up sheet; 0..3 = one pane shown full-size (mobile)
 
 function sheetLayout(cssW,M,S){
@@ -954,7 +955,7 @@ function paintSheet(g,L,M,A,S){
   g.strokeRect(L.PAD+.5,L.PAD+.5,L.cssW-2*L.PAD-1,L.cssH-2*L.PAD-1);
   g.lineWidth=.6; g.strokeStyle=GRID;
   g.strokeRect(L.PAD+5.5,L.PAD+5.5,L.cssW-2*L.PAD-11,L.cssH-2*L.PAD-11);
-  for(let i=0;i<4;i++) drawView(g,L.panes[i],L.views[i],M,A,L.scale,L.ctr,S,false,i!==1);
+  for(let i=0;i<4;i++) drawView(g,L.panes[i],L.views[i],M,A,L.scale,L.ctr,S,false,i!==1,i);
   // a light cross separating the four panes, like a printed sheet's fold/grid lines
   g.__mark&&g.__mark("grid");
   g.strokeStyle=GRID; g.lineWidth=.6;
@@ -975,7 +976,8 @@ function drawSheet(cv,M,A,S){
   g.setTransform(dpr,0,0,dpr,0,0);
   SHEETINFO.pane=L.panes[1]; SHEETINFO.scale=L.scale; SHEETINFO.ctr=L.ctr;
   SHEETINFO.gridX=L.gridX; SHEETINFO.gridY=L.gridY; SHEETINFO.single=false;
-  if(!S.forExport) DIMHIT.length=0;
+  SHEETINFO.panes=L.panes;
+  if(!S.forExport){ DIMHIT.length=0; EDGEHIT.length=0; }
   paintSheet(g,L,M,A,S);
   positionPaneSelects(L);
 }
@@ -1027,7 +1029,7 @@ function paintSheetSingle(g,L,M,A,S){
   g.strokeRect(L.PAD+.5,L.PAD+.5,L.cssW-2*L.PAD-1,L.cssH-2*L.PAD-1);
   g.lineWidth=.6; g.strokeStyle=GRID;
   g.strokeRect(L.PAD+5.5,L.PAD+5.5,L.cssW-2*L.PAD-11,L.cssH-2*L.PAD-11);
-  drawView(g,L.panes[0],L.views[L.idx],M,A,L.scale,L.ctr,S,false,L.idx!==1);
+  drawView(g,L.panes[0],L.views[L.idx],M,A,L.scale,L.ctr,S,false,L.idx!==1,L.idx);
   drawTitleBlock(g,L.title,M,S,L.scale,L.standard);
 }
 
@@ -1038,10 +1040,12 @@ function drawSheetSingle(cv,M,A,S,idx){
   cv.width=L.cssW*dpr; cv.height=L.cssH*dpr; cv.style.height=L.cssH+"px";
   const g=cv.getContext("2d");
   g.setTransform(dpr,0,0,dpr,0,0);
-  if(idx===1){ SHEETINFO.pane=L.panes[0]; SHEETINFO.scale=L.scale; SHEETINFO.ctr=L.ctr; }
+  SHEETINFO.scale=L.scale;
+  if(idx===1){ SHEETINFO.pane=L.panes[0]; SHEETINFO.ctr=L.ctr; }
   else SHEETINFO.pane=null;
   SHEETINFO.single=true;
-  if(!S.forExport) DIMHIT.length=0;
+  SHEETINFO.panes=[null,null,null,null]; SHEETINFO.panes[idx]=L.panes[0];
+  if(!S.forExport){ DIMHIT.length=0; EDGEHIT.length=0; }
   paintSheetSingle(g,L,M,A,S);
   positionPaneSelectsSingle(L,idx);
 }
@@ -1062,8 +1066,9 @@ function positionPaneSelectsSingle(L,idx){
   });
 }
 
-function drawView(g,P,V,M,A,scale,ctr,S,quick,hasSelect){
+function drawView(g,P,V,M,A,scale,ctr,S,quick,hasSelect,viewIdx){
   const cx=P.x+P.w/2, cy=P.y+P.h/2;
+  const iso=V.name==="ISO";
   const proj=p=>[
     cx+((p[0]-ctr[0])*V.r[0]+(p[1]-ctr[1])*V.r[1]+(p[2]-ctr[2])*V.r[2])*scale,
     cy+((p[0]-ctr[0])*V.u[0]+(p[1]-ctr[1])*V.u[1]+(p[2]-ctr[2])*V.u[2])*scale ];
@@ -1110,6 +1115,8 @@ function drawView(g,P,V,M,A,scale,ctr,S,quick,hasSelect){
       if(d<0.9063) show=true;
     }
     if(!show) continue;
+    if(!iso&&!S.forExport) EDGEHIT.push({viewIdx,
+      u1:(sx[E.a]-cx)/scale,v1:(sy[E.a]-cy)/scale,u2:(sx[E.b]-cx)/scale,v2:(sy[E.b]-cy)/scale});
     let host=E.f1;
     if(E.f2>=0&&keep[E.f2]){
       if(front[E.f1]&&!front[E.f2]) host=E.f1;
@@ -1124,7 +1131,6 @@ function drawView(g,P,V,M,A,scale,ctr,S,quick,hasSelect){
   for(let f=0;f<M.nf;f++) if(keep[f]&&(front[f]||owner.has(f))) order.push(f);
   order.sort((a,b)=>dep[b]-dep[a]);
 
-  const iso=V.name==="ISO";
   g.__mark&&g.__mark("mesh",V,P);
   g.save();
   g.beginPath(); g.rect(P.x,P.y,P.w,P.h); g.clip();
@@ -1168,6 +1174,7 @@ function drawView(g,P,V,M,A,scale,ctr,S,quick,hasSelect){
   g.save();
   g.beginPath(); g.rect(P.x,P.y,P.w,P.h); g.clip();
   if(!iso&&!quick) annotate(g,P,V,M,A,scale,ctr,proj,S,isSec);
+  if(!iso&&RULER_ON) drawRulers(g,cx,cy,scale,viewIdx,S);
   g.restore();
 
   g.__mark&&g.__mark("label",V,P);
@@ -1313,6 +1320,106 @@ function hitTestDim(x,y){
     if(d<bestD){ bestD=d; best=it.obj; }
   }
   return best;
+}
+
+/* ---------- ruler tool ----------
+   Free-form point-to-point measurement, independent of whatever the app already
+   chose to auto-dimension. Points are stored as (viewIdx, u, v) - the world-space
+   coordinates in that view's own projection plane (pre-scale, pre-pane-offset) -
+   so a finished measurement redraws correctly after a resize or a layout switch
+   (single-pane <-> 4-up) as long as the same named view (plan/elev/section/other,
+   never the orbiting ISO pane) is still the one shown at that slot. */
+const RULER_COL="#FFB454";
+let RULER_ON=false, RULER_HOVER=null, RULER_PEND=null, RULER_LIVE=null;
+const RULERS=[];   // finished measurements: {viewIdx,u1,v1,u2,v2}
+const EDGEHIT=[];  // per-draw visible outline edges, in the same (viewIdx,u,v) space
+function resetRulers(){
+  RULERS.length=0; RULER_PEND=null; RULER_HOVER=null; RULER_LIVE=null;
+}
+function paneAt(mx,my){
+  for(let k=0;k<4;k++){
+    const P=SHEETINFO.panes&&SHEETINFO.panes[k];
+    if(P&&mx>=P.x&&mx<=P.x+P.w&&my>=P.y&&my<=P.y+P.h) return {viewIdx:k,pane:P};
+  }
+  return null;
+}
+function hitTestEdge(mx,my){
+  const hit=paneAt(mx,my);
+  if(!hit||hit.viewIdx===1) return null;              // ISO pane is orbit-only, not measurable
+  const {viewIdx,pane}=hit, cx=pane.x+pane.w/2, cy=pane.y+pane.h/2, scale=SHEETINFO.scale;
+  const THRESH=64; // 8px
+  let best=null,bestD=THRESH;
+  for(const e of EDGEHIT){
+    if(e.viewIdx!==viewIdx) continue;
+    const d=distToSegSq(mx,my,cx+e.u1*scale,cy+e.v1*scale,cx+e.u2*scale,cy+e.v2*scale);
+    if(d<bestD){ bestD=d; best=e; }
+  }
+  return best?{u1:best.u1,v1:best.v1,u2:best.u2,v2:best.v2,pane,scale,viewIdx}:null;
+}
+// the point a click/hover should use: snapped to the nearest point on a hovered
+// edge if one is close enough, otherwise the raw cursor position - same rule a
+// physical ruler follows when you line it up against a part's edge by eye
+function rulerPointAt(mx,my){
+  const hit=paneAt(mx,my);
+  if(!hit||hit.viewIdx===1) return null;
+  const {viewIdx,pane}=hit, cx=pane.x+pane.w/2, cy=pane.y+pane.h/2, scale=SHEETINFO.scale;
+  const edge=hitTestEdge(mx,my);
+  if(edge){
+    const dx=edge.u2-edge.u1, dy=edge.v2-edge.v1, L2=dx*dx+dy*dy||1;
+    const mu=(mx-cx)/scale, mv=(my-cy)/scale;
+    let t=((mu-edge.u1)*dx+(mv-edge.v1)*dy)/L2; t=Math.max(0,Math.min(1,t));
+    return {viewIdx,u:edge.u1+t*dx,v:edge.v1+t*dy};
+  }
+  return {viewIdx,u:(mx-cx)/scale,v:(my-cy)/scale};
+}
+// a line with perpendicular ticks at each end, like a ruler laid on the page
+function rulerLine(g,x1,y1,x2,y2,txt,live){
+  g.save();
+  g.strokeStyle=RULER_COL; g.fillStyle=RULER_COL; g.lineWidth=live?1:1.3;
+  if(live) g.setLineDash([5,3]);
+  const dx=x2-x1,dy=y2-y1,L=Math.hypot(dx,dy)||1,ux=dx/L,uy=dy/L,px=-uy,py=ux;
+  g.beginPath();
+  g.moveTo(x1-px*5,y1-py*5); g.lineTo(x1+px*5,y1+py*5);
+  g.moveTo(x2-px*5,y2-py*5); g.lineTo(x2+px*5,y2+py*5);
+  g.moveTo(x1,y1); g.lineTo(x2,y2);
+  g.stroke();
+  g.restore();
+  if(txt) dimText(g,(x1+x2)/2+px*11,(y1+y2)/2+py*11,txt,RULER_COL);
+}
+// finished measurements are baked into the normal draw pass (like the auto
+// dimensions) so they survive any full redraw, not just the live overlay
+function drawRulers(g,cx,cy,scale,viewIdx,S){
+  for(const r of RULERS){
+    if(r.viewIdx!==viewIdx) continue;
+    const d=Math.hypot(r.u2-r.u1,r.v2-r.v1);
+    rulerLine(g,cx+r.u1*scale,cy+r.v1*scale,cx+r.u2*scale,cy+r.v2*scale,S.fmt(d),false);
+  }
+}
+// the hovered-edge highlight and in-progress measurement need to track the
+// cursor every pointermove - too fast for a full mesh redraw, so this blits the
+// last full frame and draws only the transient bits on top (same trick drawIso
+// uses while orbiting)
+function drawRulerLive(){
+  const cv=$("#sheet");
+  if(!BG) return;
+  const g=cv.getContext("2d"), dpr=cv.width/(cv.clientWidth||1);
+  g.save(); g.setTransform(1,0,0,1,0,0); g.drawImage(BG,0,0); g.restore();
+  g.save(); g.setTransform(dpr,0,0,dpr,0,0);
+  const S=state();
+  if(RULER_HOVER){
+    const cx=RULER_HOVER.pane.x+RULER_HOVER.pane.w/2, cy=RULER_HOVER.pane.y+RULER_HOVER.pane.h/2, sc=RULER_HOVER.scale;
+    const d=Math.hypot(RULER_HOVER.u2-RULER_HOVER.u1,RULER_HOVER.v2-RULER_HOVER.v1);
+    rulerLine(g,cx+RULER_HOVER.u1*sc,cy+RULER_HOVER.v1*sc,cx+RULER_HOVER.u2*sc,cy+RULER_HOVER.v2*sc,S.fmt(d),true);
+  }
+  if(RULER_PEND&&RULER_LIVE&&RULER_PEND.viewIdx===RULER_LIVE.viewIdx){
+    const pane=SHEETINFO.panes&&SHEETINFO.panes[RULER_PEND.viewIdx];
+    if(pane){
+      const cx=pane.x+pane.w/2, cy=pane.y+pane.h/2, sc=SHEETINFO.scale;
+      const d=Math.hypot(RULER_LIVE.u-RULER_PEND.u,RULER_LIVE.v-RULER_PEND.v);
+      rulerLine(g,cx+RULER_PEND.u*sc,cy+RULER_PEND.v*sc,cx+RULER_LIVE.u*sc,cy+RULER_LIVE.v*sc,S.fmt(d),true);
+    }
+  }
+  g.restore();
 }
 function angleLegSegs(x,y,dx,dy){
   const R=25*1.45;
@@ -2540,8 +2647,7 @@ const $=s=>document.querySelector(s);
 let MESH=null, A=null, NAME="", HI=null, HISTEP=null, FOURTH="section", TOPV="top", ELEV="front";
 
 function state(){
-  const src=+$("#srcUnit").value, dsp=+$("#dspUnit").value;
-  const k=dsp/src, u=$("#dspUnit").selectedOptions[0].text;
+  const k=1, u=$("#unit").selectedOptions[0].text;
   const dec=u==="in"?4:2;
   return {k,u,name:NAME,hi:HI,hiStep:HISTEP,steps:A?A.steps:[],fourth:FOURTH,top:TOPV,elev:ELEV,
     fmt:v=>(v/k).toFixed(dec),
@@ -2579,6 +2685,19 @@ export function toggleDimensions(){
   if(!DIMS_ON) HOVERDIM=null;
   draw();
   return DIMS_ON;
+}
+export function rulerActive(){ return RULER_ON; }
+// called from the host app's ruler-tool toggle
+export function toggleRuler(){
+  RULER_ON=!RULER_ON;
+  RULER_PEND=null; RULER_HOVER=null; RULER_LIVE=null; HOVERDIM=null;
+  draw();
+  return RULER_ON;
+}
+// called from the host app to clear every measurement the ruler tool has made
+export function clearRulers(){
+  resetRulers();
+  draw();
 }
 // called from the host app to switch between the full 4-up sheet (null) and
 // a single pane shown full-size (0=plan,1=iso,2=elevation,3=section/4th)
@@ -2734,7 +2853,7 @@ function load(tris,name){
     try{
       MESH=buildMesh(tris);
       if(!MESH||!MESH.nf){ status("no triangles in that file"); return; }
-      NAME=name; HI=null; HISTEP=null;
+      NAME=name; HI=null; HISTEP=null; resetRulers();
       const fn=document.getElementById("fileName"); if(fn) fn.textContent=name;
       const t0=performance.now();
       A=analyse(MESH);
@@ -2756,40 +2875,44 @@ function openFile(file){
   r.readAsArrayBuffer(file);
 }
 
+// called from the host app's export menu
+export function runExport(kind){
+  if(!kind||!MESH||!A) return;
+  const base=(NAME||"part").replace(/\.stl$/i,""), S=state();
+  const w=$("#sheet").clientWidth||1180;
+  status("writing "+kind.toUpperCase()+"\u2026",true);
+  setTimeout(()=>{
+    try{
+      if(kind==="png"){
+        const a=document.createElement("a");
+        a.download=base+"-blueprint.png"; a.href=$("#sheet").toDataURL("image/png"); a.click();
+      }
+      else if(kind==="svg") dl(base+"-blueprint.svg",toSVG(MESH,A,S,w,false),"image/svg+xml");
+      else if(kind==="dxf") dl(base+"-blueprint.dxf",dxfBytes(toDXF(MESH,A,S,w)),"application/dxf");
+      else if(kind==="csv") dl(base+"-measurements.csv",toCSV(MESH,A,S),"text/csv");
+      else if(kind==="json"||kind==="scad"){
+        const ax=A.up.indexOf(1);
+        if(!A.xs) A.xs=crossSections(MESH,ax<0?2:ax);
+        if(kind==="json") dl(base+"-model.json",toModelJSON(MESH,A,S,A.xs),"application/json");
+        else dl(base+".scad",toSCAD(MESH,A,S,A.xs),"text/plain");
+      }
+      status(kind.toUpperCase()+" written");
+    }catch(err){ status("export failed: "+err.message); }
+  },30);
+}
+
+// called from the host app's "Sample Part" menu item
+export function loadSamplePart(){ loadSample(); }
+
+// called from the host app when the user picks a file to open
+export function openStlFile(file){ openFile(file); }
+
 export function initApp(){
 
-  $("#file").onchange=e=>{ if(e.target.files[0]) openFile(e.target.files[0]); };
-  $("#sample").onclick=loadSample;
-  $("#srcUnit").onchange=()=>{ if(A){renderTables();draw();} };
-  $("#dspUnit").onchange=()=>{ if(A){renderTables();draw();} };
-  $("#topSel").onchange=e=>{ TOPV=e.target.value; draw(); };
-  $("#elevSel").onchange=e=>{ ELEV=e.target.value; syncFourthLabel(); draw(); };
-  $("#fourthSel").onchange=e=>{ FOURTH=e.target.value; draw(); };
-  $("#exportSel").onchange=ev=>{
-    const kind=ev.target.value; ev.target.value="";
-    if(!kind||!MESH||!A) return;
-    const base=(NAME||"part").replace(/\.stl$/i,""), S=state();
-    const w=$("#sheet").clientWidth||1180;
-    status("writing "+kind.toUpperCase()+"\u2026",true);
-    setTimeout(()=>{
-      try{
-        if(kind==="png"){
-          const a=document.createElement("a");
-          a.download=base+"-blueprint.png"; a.href=$("#sheet").toDataURL("image/png"); a.click();
-        }
-        else if(kind==="svg") dl(base+"-blueprint.svg",toSVG(MESH,A,S,w,false),"image/svg+xml");
-        else if(kind==="dxf") dl(base+"-blueprint.dxf",dxfBytes(toDXF(MESH,A,S,w)),"application/dxf");
-        else if(kind==="csv") dl(base+"-measurements.csv",toCSV(MESH,A,S),"text/csv");
-        else if(kind==="json"||kind==="scad"){
-          const ax=A.up.indexOf(1);
-          if(!A.xs) A.xs=crossSections(MESH,ax<0?2:ax);
-          if(kind==="json") dl(base+"-model.json",toModelJSON(MESH,A,S,A.xs),"application/json");
-          else dl(base+".scad",toSCAD(MESH,A,S,A.xs),"text/plain");
-        }
-        status(kind.toUpperCase()+" written");
-      }catch(err){ status("export failed: "+err.message); }
-    },30);
-  };
+  $("#unit").onchange=()=>{ if(A){renderTables();draw();} };
+  $("#topSel").onchange=e=>{ TOPV=e.target.value; resetRulers(); draw(); };
+  $("#elevSel").onchange=e=>{ ELEV=e.target.value; syncFourthLabel(); resetRulers(); draw(); };
+  $("#fourthSel").onchange=e=>{ FOURTH=e.target.value; resetRulers(); draw(); };
   const dz=document.body;
   dz.addEventListener("dragover",e=>{e.preventDefault();$("#drop").classList.add("over");});
   dz.addEventListener("dragleave",()=>$("#drop").classList.remove("over"));
@@ -2799,17 +2922,48 @@ export function initApp(){
   });
   const cv=$("#sheet");
   cv.addEventListener("pointerdown",e=>{
-    if(!inIso(cv,e)) return;
-    DRAG={x:e.clientX,y:e.clientY};
-    cv.setPointerCapture(e.pointerId);
-    cv.style.cursor="grabbing";
+    if(inIso(cv,e)){
+      DRAG={x:e.clientX,y:e.clientY};
+      cv.setPointerCapture(e.pointerId);
+      cv.style.cursor="grabbing";
+      e.preventDefault();
+      return;
+    }
+    if(RULER_ON&&MESH&&A){
+      const r=cv.getBoundingClientRect();
+      const pt=rulerPointAt(e.clientX-r.left,e.clientY-r.top);
+      if(pt){
+        if(RULER_PEND&&RULER_PEND.viewIdx===pt.viewIdx){
+          RULERS.push({viewIdx:pt.viewIdx,u1:RULER_PEND.u,v1:RULER_PEND.v,u2:pt.u,v2:pt.v});
+          RULER_PEND=null; RULER_LIVE=null;
+        } else {
+          RULER_PEND=pt; RULER_LIVE=pt;
+        }
+        draw();
+      }
+      e.preventDefault();
+    }
+  });
+  cv.addEventListener("contextmenu",e=>{
+    if(!RULER_ON) return;
     e.preventDefault();
+    if(RULER_PEND){ RULER_PEND=null; RULER_LIVE=null; drawRulerLive(); }
+    else if(RULERS.length){ RULERS.pop(); draw(); }
   });
   cv.addEventListener("pointermove",e=>{
     if(!DRAG){
       if(inIso(cv,e)){
         cv.style.cursor="grab";
         if(HOVERDIM){ HOVERDIM=null; draw(); }
+        if(RULER_HOVER||RULER_LIVE){ RULER_HOVER=null; RULER_LIVE=null; if(!RAF) RAF=requestAnimationFrame(()=>{ RAF=0; drawRulerLive(); }); }
+        return;
+      }
+      if(RULER_ON&&MESH&&A){
+        const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+        RULER_HOVER=hitTestEdge(mx,my);
+        RULER_LIVE=rulerPointAt(mx,my);
+        cv.style.cursor=RULER_LIVE?"crosshair":"default";
+        if(!RAF) RAF=requestAnimationFrame(()=>{ RAF=0; drawRulerLive(); });
         return;
       }
       if(DIMS_ON&&MESH&&A){
@@ -2830,6 +2984,7 @@ export function initApp(){
   });
   cv.addEventListener("pointerleave",()=>{
     if(HOVERDIM){ HOVERDIM=null; draw(); }
+    if(RULER_HOVER||RULER_LIVE){ RULER_HOVER=null; RULER_LIVE=null; drawRulerLive(); }
   });
   const stop=e=>{
     if(!DRAG) return;
@@ -2842,6 +2997,9 @@ export function initApp(){
   cv.addEventListener("dblclick",e=>{
     if(!inIso(cv,e)) return;
     ISO.az=ISO_HOME.az; ISO.el=ISO_HOME.el; drawIso(false);
+  });
+  addEventListener("keydown",e=>{
+    if(e.key==="Escape"&&RULER_PEND){ RULER_PEND=null; RULER_LIVE=null; drawRulerLive(); }
   });
   let t; addEventListener("resize",()=>{clearTimeout(t);t=setTimeout(draw,140);});
   loadSample();
