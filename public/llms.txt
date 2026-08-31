@@ -1,0 +1,47 @@
+# STL Blueprint
+
+> STL Blueprint turns an STL mesh into a measured, dimensioned engineering
+> blueprint — plan, elevation, section, and ISO views — entirely in the
+> browser. It fits cylinders, spheres, cones, and flat faces from the raw
+> triangle mesh (least-squares, not a bounding-box guess), so a 72-facet
+> cylinder reports its true diameter rather than the flat-to-flat distance.
+
+## What it does
+
+- Reads an STL file client-side (no upload, nothing leaves the browser) and
+  fits primitive features — cylinders, spheres, cones, flat planes, inclined
+  faces, and axial step chains — to the mesh.
+- Lays out a four-pane sheet: top/bottom plan, front/right elevation, a live
+  section A-A, and a draggable isometric view, with automatic dimension
+  lines and a feature-measurement table.
+- Lets you click a table row, or click a dimension line on the sheet itself,
+  to highlight/pin that measurement.
+- Exports the result as PNG, SVG (vector line art with real hidden-line
+  removal), DXF R12 (1:1 CAD interchange), CSV (raw measurements), JSON, or
+  an OpenSCAD script.
+
+## Notes for LLMs and agents
+
+- This is a static, client-only single-page app (Vite + Vue 3 + TypeScript).
+  There is no backend and no API — everything runs in the visitor's browser
+  against the STL file they open locally.
+- The **JSON export** is specifically designed to be machine-readable: it
+  carries every fitted feature with its type, exact parameters, and fit
+  residual, how features relate to each other (coaxial gaps as wall
+  thicknesses, tangency as smooth joins), and a passage map of the part's
+  internal voids sliced along its axis. If you're asked to reason about a
+  specific part's geometry, that export — not the picture — is the source
+  of truth.
+- The **OpenSCAD export** hands back the same model as editable, positioned
+  geometry (with a `shave()` helper for unbounded planes), suitable for
+  parametric re-editing and re-rendering to a new STL.
+- Source code: https://github.com/javisperez/stl-blueprint
+- The mesh-analysis, rendering, and export logic lives in one file:
+  https://github.com/javisperez/stl-blueprint/blob/main/src/engine/blueprint.ts
+
+## Links
+
+- Live app: https://javisperez.github.io/stl-blueprint/
+- Repository: https://github.com/javisperez/stl-blueprint
+- README: https://github.com/javisperez/stl-blueprint/blob/main/README.md
+- License: Apache License 2.0
