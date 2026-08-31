@@ -173,7 +173,7 @@ onMounted(() => {
             <select id="fourthSel" class="pane-select"><option value="section">Section A-A</option><option value="other" id="otherOpt">Right view</option></select>
           </div>
         </div>
-        <div id="statusBar" class="status-bar">
+        <div id="statusBar" class="status-bar tab-section" :class="{ active: activeTab === 'viewer' }">
           <div id="statusBarBody"></div>
         </div>
       </div>

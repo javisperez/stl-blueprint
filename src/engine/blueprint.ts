@@ -1001,7 +1001,12 @@ function positionPaneSelects(L){
    grid, used on narrow screens where four panes at once are unreadable. */
 function sheetLayoutSingle(cssW,M,S,idx){
   const cssH=Math.round(cssW*1.3);
-  const PAD=13, TB=78;
+  // the title block's fixed six-column layout has no room to breathe at mobile
+  // widths (headers and values both overrun their column and overlap) - the
+  // same numbers are already shown, wrapped properly, in the status bar below
+  // the canvas, so the single-pane sheet skips the block entirely and gets the
+  // reclaimed strip back as drawing area
+  const PAD=13, TB=0;
   const area={x:PAD+12,y:PAD+12,w:cssW-2*PAD-24,h:cssH-2*PAD-24-TB};
   const pane={x:area.x,y:area.y,w:area.w,h:area.h};
   const plan=S.top==="bottom"?V_BOTTOM:V_TOP;
@@ -1020,8 +1025,7 @@ function sheetLayoutSingle(cssW,M,S,idx){
     h=Math.max(h,Math.abs(c[0]*V.u[0]+c[1]*V.u[1]+c[2]*V.u[2])*2);
   }
   const scale=Math.min((pane.w-132)/Math.max(w,1e-6),(pane.h-124)/Math.max(h,1e-6));
-  return {cssW,cssH,PAD,TB,area,panes:[pane],views,idx,ctr,scale,standard,
-          title:{x:area.x,y:area.y+area.h+6,w:area.w,h:TB-6}};
+  return {cssW,cssH,PAD,TB,area,panes:[pane],views,idx,ctr,scale,standard};
 }
 
 function paintSheetSingle(g,L,M,A,S){
@@ -1031,7 +1035,6 @@ function paintSheetSingle(g,L,M,A,S){
   g.lineWidth=.6; g.strokeStyle=GRID;
   g.strokeRect(L.PAD+5.5,L.PAD+5.5,L.cssW-2*L.PAD-11,L.cssH-2*L.PAD-11);
   drawView(g,L.panes[0],L.views[L.idx],M,A,L.scale,L.ctr,S,false,L.idx!==1,L.idx);
-  drawTitleBlock(g,L.title,M,S,L.scale,L.standard);
 }
 
 function drawSheetSingle(cv,M,A,S,idx){
@@ -1304,7 +1307,7 @@ function axisOf(v){ for(let i=0;i<3;i++) if(Math.abs(v[i])>0.98) return i; retur
    Lines are hit-tested by identity of the object they measure (a step segment,
    a fitted feature, an angle...) so the highlight survives the next repaint -
    the same trick the measurements-table hover already relies on (S.hi/S.hiStep). */
-let DIMS_ON=true, HOVERDIM=null;
+let DIMS_ON=true, HOVERDIM=null, PINDIM=null;
 const DIMHIT=[];
 function distToSegSq(px,py,x1,y1,x2,y2){
   const dx=x2-x1,dy=y2-y1,L2=dx*dx+dy*dy;
@@ -1353,16 +1356,40 @@ function resetRulers(){
    and only thrown away when a new part loads. */
 let GROUP_ON=false;
 const GROUP_VIS_CACHE=new Map();
+const GROUP_SEGS_CACHE=new Map();
+// A boundary only earns its own corner if a real MESH VERTEX at that level is
+// actually visible in this view - not just any point along an edge. Sampling
+// fine points along every silhouette/crease edge (like the vector-export hidden-
+// line pass does) also catches the spots where an edge merely ducks behind other
+// geometry and re-emerges - those aren't corners, they're the same straight edge
+// with a gap painted into it, so counting them made grouping keep almost every
+// boundary regardless of whether it read as a real corner on the sheet.
 function computeVisibleLevels(M,V,ctr,scale,P,keep){
   const bias=M.diag*0.0035;
-  const segs=visibleSegments(M,V,scale,ctr,P,keep,bias);
-  const cx=P.x+P.w/2, cy=P.y+P.h/2;
+  const B=depthBuffer(M,V,scale,ctr,P,2);
+  const {Z,W,H,bx,by,bz}=B;
+  const visAt=(x,y,z)=>{
+    const X=Math.floor(x), Y=Math.floor(y);
+    let m=-1e30;
+    for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
+      const px=X+dx, py=Y+dy;
+      if(px<0||py<0||px>=W||py>=H) return true;   // touches open space: visible
+      const v=Z[py*W+px]; if(v>m) m=v;
+    }
+    return z<=m+bias;
+  };
+  const list=outlineEdgeList(M,V,keep);
   const hAx=axisOf(V.r), vAx=axisOf(V.u);
-  const signH=Math.sign(V.r[hAx])||1, signV=Math.sign(V.u[vAx])||1;
-  const hLevels=[], vLevels=[];
-  for(const s of segs) for(const p of s){
-    hLevels.push(ctr[hAx]+((p[0]-cx)/scale)*signH);
-    vLevels.push(ctr[vAx]+((p[1]-cy)/scale)*signV);
+  const hLevels=[], vLevels=[], seen=new Set();
+  for(const e of list){
+    const E=M.edges[e];
+    for(const vi of [E.a,E.b]){
+      if(seen.has(vi)) continue;
+      seen.add(vi);
+      if(!visAt(bx[vi],by[vi],bz[vi])) continue;
+      hLevels.push(M.V[vi*3+hAx]);
+      vLevels.push(M.V[vi*3+vAx]);
+    }
   }
   return {hLevels,vLevels};
 }
@@ -1371,6 +1398,16 @@ function groupLevelsFor(M,V,ctr,scale,P,keep){
   let hit=GROUP_VIS_CACHE.get(key);
   if(!hit){ hit=computeVisibleLevels(M,V,ctr,scale,P,keep); GROUP_VIS_CACHE.set(key,hit); }
   return hit;
+}
+// grouped segments are recomputed from scratch on every redraw, but hover and
+// pin isolate a dimension by comparing object identity against last frame's -
+// caching by view+axis keeps returning the same segment objects across draws
+// (as long as GROUP stays on, for this view) so a hover/pin actually survives
+// the next repaint instead of silently going stale
+function groupedChainSegsCached(key,chain,levels,tol){
+  let seg=GROUP_SEGS_CACHE.get(key);
+  if(!seg) GROUP_SEGS_CACHE.set(key,seg=groupedChainSegs(chain,levels,tol));
+  return seg;
 }
 function groupedChainSegs(chain,levels,tol){
   const lv=chain.levels;
@@ -1529,7 +1566,7 @@ function angleLegSegs(x,y,dx,dy){
 /* ---------- annotations ---------- */
 function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec,viewIdx,keep){
   if(!S.forExport&&!DIMS_ON) return;
-  const hover=S.forExport?null:HOVERDIM;
+  const hover=S.forExport?null:(HOVERDIM||PINDIM);
   const visible=obj=>!hover||hover===obj;
   const isHover=obj=>hover===obj;
   const reg=(obj,segs)=>{ if(!S.forExport) DIMHIT.push({obj,pane:P,segs}); };
@@ -1582,8 +1619,9 @@ function annotate(g,P,V,M,A,scale,ctr,proj,S,isSec,viewIdx,keep){
   let chainVSegs=chainV?chainV.segs:[], chainHSegs=chainH?chainH.segs:[];
   if(GROUP){
     const {hLevels,vLevels}=groupLevelsFor(M,V,ctr,scale,P,keep);
-    if(chainV) chainVSegs=groupedChainSegs(chainV,vLevels,Math.max(M.diag*3e-4,(M.mx[vAx]-M.mn[vAx])*0.008));
-    if(chainH) chainHSegs=groupedChainSegs(chainH,hLevels,Math.max(M.diag*3e-4,(M.mx[hAx]-M.mn[hAx])*0.008));
+    const vk=V.name+"|"+V.f.join(",");
+    if(chainV) chainVSegs=groupedChainSegsCached(vk+"|V",chainV,vLevels,Math.max(M.diag*3e-4,(M.mx[vAx]-M.mn[vAx])*0.008));
+    if(chainH) chainHSegs=groupedChainSegsCached(vk+"|H",chainH,hLevels,Math.max(M.diag*3e-4,(M.mx[hAx]-M.mn[hAx])*0.008));
   }
   const levelPt=(ai,t)=>{const p=[ctr[0],ctr[1],ctr[2]];p[ai]=t;return proj(p);};
 
@@ -2785,7 +2823,7 @@ export function dimensionsVisible(){ return DIMS_ON; }
 // called from the host app's "hide dimensions" toggle
 export function toggleDimensions(){
   DIMS_ON=!DIMS_ON;
-  if(!DIMS_ON) HOVERDIM=null;
+  if(!DIMS_ON){ HOVERDIM=null; PINDIM=null; }
   draw();
   return DIMS_ON;
 }
@@ -2793,7 +2831,7 @@ export function rulerActive(){ return RULER_ON; }
 // called from the host app's ruler-tool toggle
 export function toggleRuler(){
   RULER_ON=!RULER_ON;
-  RULER_PEND=null; RULER_HOVER=null; RULER_LIVE=null; HOVERDIM=null;
+  RULER_PEND=null; RULER_HOVER=null; RULER_LIVE=null; HOVERDIM=null; PINDIM=null;
   draw();
   return RULER_ON;
 }
@@ -2963,7 +3001,7 @@ function load(tris,name){
     try{
       MESH=buildMesh(tris);
       if(!MESH||!MESH.nf){ status("no triangles in that file"); return; }
-      NAME=name; HI=null; HISTEP=null; resetRulers(); GROUP_VIS_CACHE.clear();
+      NAME=name; HI=null; HISTEP=null; PINDIM=null; resetRulers(); GROUP_VIS_CACHE.clear(); GROUP_SEGS_CACHE.clear();
       const fn=document.getElementById("fileName"); if(fn) fn.textContent=name;
       const t0=performance.now();
       A=analyse(MESH);
@@ -3054,6 +3092,17 @@ export function initApp(){
       e.preventDefault();
     }
   });
+  // click a dimension to pin it visible/isolated even after the mouse moves away -
+  // click it again (or click empty space) to release it back to hover-only
+  cv.addEventListener("click",e=>{
+    if(inIso(cv,e)||RULER_ON||!DIMS_ON||!MESH||!A) return;
+    const r=cv.getBoundingClientRect();
+    const hit=hitTestDim(e.clientX-r.left,e.clientY-r.top);
+    const next=hit&&PINDIM!==hit?hit:null;
+    if(next===PINDIM) return;
+    PINDIM=next;
+    draw();
+  });
   cv.addEventListener("contextmenu",e=>{
     if(!RULER_ON) return;
     e.preventDefault();
@@ -3126,7 +3175,8 @@ export function initApp(){
    "arrangement is no longer standard. The <b>ISO</b> pane is live: "+
    "drag inside it to orbit, double-click to reset. It stays a true axonometric projection at the "+
    "sheet scale, so it never turns into a perspective render. Click any table row to highlight that "+
-   "measurement on the sheet.<br><br>"+
+   "measurement on the sheet, or click a dimension line itself to pin it visible - click it again to "+
+   "release it.<br><br>"+
    "<b>Exports.</b> <b>DXF R12</b> is the interchange format every CAD package reads; it is written at "+
    "<b>1:1 in model units</b>, on layers (OUTLINE, HIDDEN, CENTRE, SECTION, HATCH, DIMS, TEXT, FITTED, "+
    "PICTORIAL), so measuring a line in CAD returns the real size. The FITTED layer carries true CIRCLE "+
